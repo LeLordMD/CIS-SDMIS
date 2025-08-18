@@ -2,16 +2,19 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CIS SDMIS</title>
+
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
   <style>
     body {
       margin: 0;
       font-family: Arial, sans-serif;
       background-color: #f8f8f8;
     }
+
     header {
       background-color: #b30000;
       color: white;
@@ -29,19 +32,34 @@
       width: 90%;
       max-width: 300px;
     }
-    .category {
-      margin: 15px;
+
+    /* Container de chaque section */
+    .category-section {
+      margin: 20px 0;
+    }
+    .category-title {
+      margin: 0 15px 8px;
       font-weight: bold;
       font-size: 1.2em;
       color: #b30000;
     }
+    /* Ligne de véhicules, auto-wrap */
+    .vehicles-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 15px;
+    }
+    /* Chaque bloc véhicule s’adapte à son contenu */
     .vehicle {
-      margin: 5px 15px;
-      padding: 10px;
+      padding: 8px 12px;
       border-radius: 8px;
       font-weight: bold;
       font-size: 1em;
+      flex: 0 0 auto;
     }
+
+    /* Statuts */
     .DL { background-color: #90ee90; color: black; }
     .DM { background-color: #d3d3d3; color: black; }
     .IN { background-color: black;   color: white; }
@@ -50,7 +68,7 @@
 </head>
 <body>
   <header>
-    CIS SDMIS<br />
+    CIS SDMIS<br>
     <select id="caserneSelect">
       <option value="Ampuis">Ampuis</option>
       <option value="Condrieu">Condrieu</option>
@@ -61,6 +79,7 @@
   <div id="vehicleContainer"></div>
 
   <script>
+    // -- Init Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyCe6_BM4BtT0fi6-yudBOAMIkPueq2rKYA",
       authDomain: "cis-sdmis.firebaseapp.com",
@@ -70,23 +89,28 @@
       messagingSenderId: "305775040783",
       appId: "1:305775040783:web:28abe37dc830d2e3ab067a"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    const caserneSelect = document.getElementById("caserneSelect");
-    const container = document.getElementById("vehicleContainer");
 
+    // -- Références & état
+    const caserneSelect = document.getElementById("caserneSelect");
+    const container     = document.getElementById("vehicleContainer");
+    let currentRef      = null;
+
+    // -- Catégories & ordre
     const categories = {
-      "Secours à Personne": ["VLINF 01", "VSAV 01", "VSAV 02"],
-      "Incendie":           ["CCFM 01", "CCI 01", "FPTASR 01", "FPTL 01"],
+      "Secours à Personne": ["VLINF 01","VSAV 01","VSAV 02"],
+      "Incendie":           ["CCFM 01","CCI 01","FPTASR 01","FPTL 01"],
       "Echelle":            ["EPS24 01"],
-      "Operations Diverses":["VFI 01", "VFIHR 01", "VTUTP 01"],
+      "Operations Diverses":["VFI 01","VFIHR 01","VTUTP 01"],
       "Commandement":       ["VLCDG 01"],
       "Remorque Cellule Lot":["BMS 01","LBACHE 01","LBALIS 01","LCITS5 01","LDEPOL 01","LDNROY 01","LECLE 01","LELEC 01","LGAZ 01","LTRON 01","MPR 01","R2BLS 01"]
     };
 
-    function getStatusClass(status) {
-      switch (status) {
+    // Normalise et mappe le statut sur une classe CSS
+    function getStatusClass(raw) {
+      const status = String(raw||"").trim().toUpperCase();
+      switch(status) {
         case "DL": return "DL";
         case "DM": return "DM";
         case "IN": return "IN";
@@ -94,53 +118,68 @@
       }
     }
 
+    // Charge en temps réel et réaffiche à chaque modif
     function loadVehicles(caserne) {
+      // déconnecte ancien listener
+      if (currentRef) currentRef.off();
       container.innerHTML = "";
-      // <-- chemin corrigé
-      const path = `CIS/${caserne}/Engins`;  
-      console.log("Lecture sur le nœud :", path);
 
-      db.ref(path).once("value")
-        .then(snapshot => {
-          const data = snapshot.val();
-          console.log("Données reçues :", data);
+      // mets à jour la référence actuelle (chemin exact)
+      const path = `CIS/${caserne}/Engins`;
+      currentRef = db.ref(path);
 
-          if (!data || Object.keys(data).length === 0) {
-            container.innerHTML = `
-              <div class="category">Véhicules</div>
-              <div class="vehicle default">VSAV 01</div>
-            `;
-            return;
-          }
+      currentRef.on("value", snap => {
+        container.innerHTML = "";
 
-          Object.entries(categories).forEach(([category, list]) => {
-            const section = document.createElement("div");
-            section.className = "category";
-            section.textContent = category;
-            container.appendChild(section);
+        const data = snap.val();
+        // fallback si vide
+        if (!data || Object.keys(data).length === 0) {
+          container.innerHTML = `
+            <div class="category-section">
+              <div class="category-title">Véhicules</div>
+              <div class="vehicles-row">
+                <div class="vehicle default">VSAV 01</div>
+              </div>
+            </div>`;
+          return;
+        }
 
-            list.forEach(name => {
-              const statut = data[name]?.statut || "DM";
-              const div = document.createElement("div");
-              div.className = `vehicle ${getStatusClass(statut)}`;
-              div.textContent = name;
-              container.appendChild(div);
-            });
+        // pour chaque catégorie, on crée un bloc title + row
+        Object.entries(categories).forEach(([cat, list]) => {
+          const section = document.createElement("div");
+          section.classList.add("category-section");
+
+          const title = document.createElement("div");
+          title.classList.add("category-title");
+          title.textContent = cat;
+          section.appendChild(title);
+
+          const row = document.createElement("div");
+          row.classList.add("vehicles-row");
+
+          list.forEach(name => {
+            const statut = data[name]?.statut;
+            const div = document.createElement("div");
+            div.classList.add("vehicle", getStatusClass(statut));
+            div.textContent = name;
+            row.appendChild(div);
           });
-        })
-        .catch(err => {
-          console.error("Impossible de lire la DB :", err);
+
+          section.appendChild(row);
+          container.appendChild(section);
         });
+      }, err => console.error("Erreur RTD:", err));
     }
 
+    // événement de change + init
     caserneSelect.addEventListener("change", () => {
       loadVehicles(caserneSelect.value);
     });
 
-    window.onload = () => {
+    window.addEventListener("DOMContentLoaded", () => {
       caserneSelect.value = "Ampuis";
       loadVehicles("Ampuis");
-    };
+    });
   </script>
 </body>
 </html>
