@@ -42,10 +42,10 @@
       font-weight: bold;
       font-size: 1em;
     }
-    .DL { background-color: #90ee90; color: black; }     /* Vert clair */
-    .DM { background-color: #d3d3d3; color: black; }     /* Gris */
-    .IN { background-color: black; color: white; }       /* Noir */
-    .default { background-color: #d3d3d3; color: black; }/* Par défaut */
+    .DL { background-color: #90ee90; color: black; }
+    .DM { background-color: #d3d3d3; color: black; }
+    .IN { background-color: black;   color: white; }
+    .default { background-color: #d3d3d3; color: black; }
   </style>
 </head>
 <body>
@@ -73,17 +73,16 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-
     const caserneSelect = document.getElementById("caserneSelect");
     const container = document.getElementById("vehicleContainer");
 
     const categories = {
       "Secours à Personne": ["VLINF 01", "VSAV 01", "VSAV 02"],
-      "Incendie": ["CCFM 01", "CCI 01", "FPTASR 01", "FPTL 01"],
-      "Echelle": ["EPS24 01"],
-      "Operations Diverses": ["VFI 01", "VFIHR 01", "VTUTP 01"],
-      "Commandement": ["VLCDG 01"],
-      "Remorque Cellule Lot": ["BMS 01", "LBACHE 01", "LBALIS 01", "LCITS5 01", "LDEPOL 01", "LDNROY 01", "LECLE 01", "LELEC 01", "LGAZ 01", "LTRON 01", "MPR 01", "R2BLS 01"]
+      "Incendie":           ["CCFM 01", "CCI 01", "FPTASR 01", "FPTL 01"],
+      "Echelle":            ["EPS24 01"],
+      "Operations Diverses":["VFI 01", "VFIHR 01", "VTUTP 01"],
+      "Commandement":       ["VLCDG 01"],
+      "Remorque Cellule Lot":["BMS 01","LBACHE 01","LBALIS 01","LCITS5 01","LDEPOL 01","LDNROY 01","LECLE 01","LELEC 01","LGAZ 01","LTRON 01","MPR 01","R2BLS 01"]
     };
 
     function getStatusClass(status) {
@@ -91,35 +90,47 @@
         case "DL": return "DL";
         case "DM": return "DM";
         case "IN": return "IN";
-        default: return "default";
+        default:   return "default";
       }
     }
 
     function loadVehicles(caserne) {
       container.innerHTML = "";
-      db.ref(`casernes/${caserne}/vehicules`).once("value", snapshot => {
-        const data = snapshot.val() || {};
-        if (Object.keys(data).length === 0) {
-          container.innerHTML = `<div class="category">Véhicules</div>
-            <div class="vehicle default">VSAV 01</div>`;
-          return;
-        }
+      // <-- chemin corrigé
+      const path = `CIS/${caserne}/Engins`;  
+      console.log("Lecture sur le nœud :", path);
 
-        for (const [category, vehicles] of Object.entries(categories)) {
-          const section = document.createElement("div");
-          section.className = "category";
-          section.textContent = category;
-          container.appendChild(section);
+      db.ref(path).once("value")
+        .then(snapshot => {
+          const data = snapshot.val();
+          console.log("Données reçues :", data);
 
-          vehicles.forEach(name => {
-            const status = data[name]?.statut || "DM";
-            const div = document.createElement("div");
-            div.className = `vehicle ${getStatusClass(status)}`;
-            div.textContent = name;
-            container.appendChild(div);
+          if (!data || Object.keys(data).length === 0) {
+            container.innerHTML = `
+              <div class="category">Véhicules</div>
+              <div class="vehicle default">VSAV 01</div>
+            `;
+            return;
+          }
+
+          Object.entries(categories).forEach(([category, list]) => {
+            const section = document.createElement("div");
+            section.className = "category";
+            section.textContent = category;
+            container.appendChild(section);
+
+            list.forEach(name => {
+              const statut = data[name]?.statut || "DM";
+              const div = document.createElement("div");
+              div.className = `vehicle ${getStatusClass(statut)}`;
+              div.textContent = name;
+              container.appendChild(div);
+            });
           });
-        }
-      });
+        })
+        .catch(err => {
+          console.error("Impossible de lire la DB :", err);
+        });
     }
 
     caserneSelect.addEventListener("change", () => {
