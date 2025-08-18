@@ -25,6 +25,7 @@
       top: 0;
       z-index: 1000;
     }
+
     select {
       margin-top: 10px;
       padding: 8px;
@@ -33,24 +34,24 @@
       max-width: 300px;
     }
 
-    /* Container de chaque section */
     .category-section {
       margin: 20px 0;
     }
+
     .category-title {
       margin: 0 15px 8px;
       font-weight: bold;
       font-size: 1.2em;
       color: #b30000;
     }
-    /* Ligne de véhicules, auto-wrap */
+
     .vehicles-row {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
       margin: 0 15px;
     }
-    /* Chaque bloc véhicule s’adapte à son contenu */
+
     .vehicle {
       padding: 8px 12px;
       border-radius: 8px;
@@ -59,11 +60,21 @@
       flex: 0 0 auto;
     }
 
-    /* Statuts */
-    .DL { background-color: #90ee90; color: black; }
-    .DM { background-color: #d3d3d3; color: black; }
-    .IN { background-color: black;   color: white; }
-    .default { background-color: #d3d3d3; color: black; }
+    /* Statuts et couleurs associées */
+    .DL { background-color: #90ee90; color: #000000; }  /* vert clair/texte noir */
+    .RE { background-color: #006400; color: #000000; }  /* vert foncé/texte noir */
+    .AL { background-color: #ffeb3b; color: #d32f2f; }  /* jaune-orangé/texte rouge */
+    .PA { background-color: #d32f2f; color: #ffffff; }  /* rouge/texte blanc */
+    .SL { background-color: #d32f2f; color: #000000; }  /* rouge/texte noir */
+    .TH { background-color: #ffffff; color: #5c6bc0; }  /* blanc/texte bleu-violet */
+    .AH { background-color: #ffffff; color: #000000; }  /* blanc/texte noir */
+    .PC { background-color: #ffffff; color: #388e3c; }  /* blanc/texte vert clair */
+    .QH { background-color: #ffffff; color: #ff9800; }  /* blanc/texte orange */
+    .RD { background-color: #5c6bc0; color: #000000; }  /* bleu-violet/texte noir */
+    .RI { background-color: #5c6bc0; color: #ffffff; }  /* bleu-violet/texte blanc */
+    .MD { background-color: #9c27b0; color: #000000; }  /* violet/texte noir */
+    .MI { background-color: #9c27b0; color: #ffffff; }  /* violet/texte blanc */
+    .default { background-color: #d3d3d3; color: #000000; } /* gris fallback */
   </style>
 </head>
 <body>
@@ -79,7 +90,7 @@
   <div id="vehicleContainer"></div>
 
   <script>
-    // -- Init Firebase
+    // -- Initialisation Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyCe6_BM4BtT0fi6-yudBOAMIkPueq2rKYA",
       authDomain: "cis-sdmis.firebaseapp.com",
@@ -97,43 +108,53 @@
     const container     = document.getElementById("vehicleContainer");
     let currentRef      = null;
 
-    // -- Catégories & ordre
+    // -- Catégories & ordre d'affichage
     const categories = {
       "Secours à Personne": ["VLINF 01","VSAV 01","VSAV 02"],
       "Incendie":           ["CCFM 01","CCI 01","FPTASR 01","FPTL 01"],
       "Echelle":            ["EPS24 01"],
       "Operations Diverses":["VFI 01","VFIHR 01","VTUTP 01"],
       "Commandement":       ["VLCDG 01"],
-      "Remorque Cellule Lot":["BMS 01","LBACHE 01","LBALIS 01","LCITS5 01","LDEPOL 01","LDNROY 01","LECLE 01","LELEC 01","LGAZ 01","LTRON 01","MPR 01","R2BLS 01"]
+      "Remorque Cellule Lot":[
+        "BMS 01","LBACHE 01","LBALIS 01","LCITS5 01",
+        "LDEPOL 01","LDNROY 01","LECLE 01","LELEC 01",
+        "LGAZ 01","LTRON 01","MPR 01","R2BLS 01"
+      ]
     };
 
-    // Normalise et mappe le statut sur une classe CSS
+    // Retourne la classe CSS d'après le code statut
     function getStatusClass(raw) {
-      const status = String(raw||"").trim().toUpperCase();
-      switch(status) {
+      const status = String(raw || "").trim().toUpperCase();
+      switch (status) {
         case "DL": return "DL";
-        case "DM": return "DM";
-        case "IN": return "IN";
+        case "RE": return "RE";
+        case "AL": return "AL";
+        case "PA": return "PA";
+        case "SL": return "SL";
+        case "TH": return "TH";
+        case "AH": return "AH";
+        case "PC": return "PC";
+        case "QH": return "QH";
+        case "RD": return "RD";
+        case "RI": return "RI";
+        case "MD": return "MD";
+        case "MI": return "MI";
         default:   return "default";
       }
     }
 
-    // Charge en temps réel et réaffiche à chaque modif
+    // Charge et écoute en temps réel les Engins d’une caserne
     function loadVehicles(caserne) {
-      // déconnecte ancien listener
-      if (currentRef) currentRef.off();
+      if (currentRef) currentRef.off();  // stop écoute précédente
       container.innerHTML = "";
 
-      // mets à jour la référence actuelle (chemin exact)
-      const path = `CIS/${caserne}/Engins`;
-      currentRef = db.ref(path);
-
+      currentRef = db.ref(`CIS/${caserne}/Engins`);
       currentRef.on("value", snap => {
         container.innerHTML = "";
+        const data = snap.val() || {};
 
-        const data = snap.val();
-        // fallback si vide
-        if (!data || Object.keys(data).length === 0) {
+        // si pas de données, fallback
+        if (!Object.keys(data).length) {
           container.innerHTML = `
             <div class="category-section">
               <div class="category-title">Véhicules</div>
@@ -144,7 +165,7 @@
           return;
         }
 
-        // pour chaque catégorie, on crée un bloc title + row
+        // parcours chaque catégorie
         Object.entries(categories).forEach(([cat, list]) => {
           const section = document.createElement("div");
           section.classList.add("category-section");
@@ -158,7 +179,7 @@
           row.classList.add("vehicles-row");
 
           list.forEach(name => {
-            const statut = data[name]?.statut;
+            const statut = String(data[name] || "DM").toUpperCase().trim();
             const div = document.createElement("div");
             div.classList.add("vehicle", getStatusClass(statut));
             div.textContent = name;
@@ -168,14 +189,15 @@
           section.appendChild(row);
           container.appendChild(section);
         });
-      }, err => console.error("Erreur RTD:", err));
+      }, err => console.error("Erreur RTDB :", err));
     }
 
-    // événement de change + init
+    // Gestion du menu déroulant
     caserneSelect.addEventListener("change", () => {
       loadVehicles(caserneSelect.value);
     });
 
+    // Initialisation au chargement
     window.addEventListener("DOMContentLoaded", () => {
       caserneSelect.value = "Ampuis";
       loadVehicles("Ampuis");
