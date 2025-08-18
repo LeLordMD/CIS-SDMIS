@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CIS SDMIS</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f8f8f8;
+    }
+    header {
+      background-color: #b30000;
+      color: white;
+      padding: 10px;
+      text-align: center;
+      font-size: 1.5em;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+    select {
+      margin-top: 10px;
+      padding: 8px;
+      font-size: 1em;
+      width: 90%;
+      max-width: 300px;
+    }
+    .category {
+      margin: 15px;
+      font-weight: bold;
+      font-size: 1.2em;
+      color: #b30000;
+    }
+    .vehicle {
+      margin: 5px 15px;
+      padding: 10px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 1em;
+    }
+    .DL { background-color: #90ee90; color: black; }     /* Vert clair */
+    .DM { background-color: #d3d3d3; color: black; }     /* Gris */
+    .IN { background-color: black; color: white; }       /* Noir */
+    .default { background-color: #d3d3d3; color: black; }/* Par défaut */
+  </style>
+</head>
+<body>
+  <header>
+    CIS SDMIS<br />
+    <select id="caserneSelect">
+      <option value="Ampuis">Ampuis</option>
+      <option value="Condrieu">Condrieu</option>
+      <option value="Sainte-Colombe">Sainte-Colombe</option>
+    </select>
+  </header>
+
+  <div id="vehicleContainer"></div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCe6_BM4BtT0fi6-yudBOAMIkPueq2rKYA",
+      authDomain: "cis-sdmis.firebaseapp.com",
+      databaseURL: "https://cis-sdmis-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "cis-sdmis",
+      storageBucket: "cis-sdmis.firebasestorage.app",
+      messagingSenderId: "305775040783",
+      appId: "1:305775040783:web:28abe37dc830d2e3ab067a"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const caserneSelect = document.getElementById("caserneSelect");
+    const container = document.getElementById("vehicleContainer");
+
+    const categories = {
+      "Secours à Personne": ["VLINF 01", "VSAV 01", "VSAV 02"],
+      "Incendie": ["CCFM 01", "CCI 01", "FPTASR 01", "FPTL 01"],
+      "Echelle": ["EPS24 01"],
+      "Operations Diverses": ["VFI 01", "VFIHR 01", "VTUTP 01"],
+      "Commandement": ["VLCDG 01"],
+      "Remorque Cellule Lot": ["BMS 01", "LBACHE 01", "LBALIS 01", "LCITS5 01", "LDEPOL 01", "LDNROY 01", "LECLE 01", "LELEC 01", "LGAZ 01", "LTRON 01", "MPR 01", "R2BLS 01"]
+    };
+
+    function getStatusClass(status) {
+      switch (status) {
+        case "DL": return "DL";
+        case "DM": return "DM";
+        case "IN": return "IN";
+        default: return "default";
+      }
+    }
+
+    function loadVehicles(caserne) {
+      container.innerHTML = "";
+      db.ref(`casernes/${caserne}/vehicules`).once("value", snapshot => {
+        const data = snapshot.val() || {};
+        if (Object.keys(data).length === 0) {
+          container.innerHTML = `<div class="category">Véhicules</div>
+            <div class="vehicle default">VSAV 01</div>`;
+          return;
+        }
+
+        for (const [category, vehicles] of Object.entries(categories)) {
+          const section = document.createElement("div");
+          section.className = "category";
+          section.textContent = category;
+          container.appendChild(section);
+
+          vehicles.forEach(name => {
+            const status = data[name]?.statut || "DM";
+            const div = document.createElement("div");
+            div.className = `vehicle ${getStatusClass(status)}`;
+            div.textContent = name;
+            container.appendChild(div);
+          });
+        }
+      });
+    }
+
+    caserneSelect.addEventListener("change", () => {
+      loadVehicles(caserneSelect.value);
+    });
+
+    window.onload = () => {
+      caserneSelect.value = "Ampuis";
+      loadVehicles("Ampuis");
+    };
+  </script>
+</body>
+</html>
