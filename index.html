@@ -33,12 +33,11 @@
     header {
       background-color: #b30000;
       color: white;
-      padding: 10px;
-      text-align: center;
-      font-size: 1.5em;
+      padding: 10px 0;
       position: sticky;
       top: 0;
       z-index: 1000;
+      /* on garde flex pour centrer le bouton hamburger et le select */
       display: flex;
       align-items: center;
       justify-content: center;
@@ -56,12 +55,14 @@
       z-index: 1001;
     }
 
-    select {
-      margin-top: 10px;
+    /* Sélecteur centré et adaptatif */
+    header select {
+      display: block;
+      margin: 0 auto;
+      width: 90%;
+      max-width: 500px;
       padding: 8px;
       font-size: 1em;
-      width: 90%;
-      max-width: 300px;
     }
 
     /* --- Sidebar --- */
@@ -93,14 +94,13 @@
       text-align: center;
     }
 
-    #sidebar button {
+    /* Bouton « Carte » sans icône et plus gros */
+    #showMapBtn {
       background: none;
       border: none;
-      font-size: 1em;
+      font-size: 1.3em;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      padding: 10px 15px;
     }
 
     /* --- Conteneurs de contenu --- */
@@ -159,8 +159,7 @@
     <ul>
       <li>
         <button id="showMapBtn">
-          <span class="map-icon">&#x1F5FA;</span>
-          Carte satellite
+          Carte
         </button>
       </li>
     </ul>
@@ -171,7 +170,6 @@
 
   <!-- Conteneur des véhicules -->
   <div id="vehicleContainer"></div>
-
 
   <script>
     // -- Initialisation Firebase
