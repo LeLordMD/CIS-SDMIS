@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8"/>
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
   <!-- Firebase -->
@@ -22,6 +22,7 @@
   ></script>
 
   <style>
+    /* 1/ Reset hautes tailles */
     html, body {
       height: 100%;
       margin: 0;
@@ -106,7 +107,12 @@
       z-index: 1;
     }
 
-    /* ... styles des véhicules inchangés ... */
+    /* Styles véhicules */
+    .category-section { margin: 20px 0; }
+    .category-title { margin: 0 15px 8px; font-weight: bold; font-size: 1.2em; color: #b30000; }
+    .vehicles-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 15px; }
+    .vehicle { padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 1em; }
+    /* … classes DM, IN, DL, etc. inchangées … */
   </style>
 </head>
 <body>
@@ -130,15 +136,81 @@
   <div id="vehicleContainer"></div>
 
   <script>
-    // Firebase init (inchangé)
-    firebase.initializeApp({ /* ... */ });
+    // -- Initialisation Firebase
+    const firebaseConfig = { /* … vos clés … */ };
+    firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    let map, mapInitialized = false;
-    const container  = document.getElementById("vehicleContainer");
-    const mapDiv     = document.getElementById("map");
-    const showMapBtn = document.getElementById("showMapBtn");
+    // Références DOM
+    const caserneSelect  = document.getElementById("caserneSelect");
+    const container      = document.getElementById("vehicleContainer");
+    const menuToggle     = document.getElementById("menuToggle");
+    const sidebar        = document.getElementById("sidebar");
+    const showMapBtn     = document.getElementById("showMapBtn");
+    const mapDiv         = document.getElementById("map");
 
+    let currentRef = null;
+    let map, mapInitialized = false;
+
+    // Catégories & ordre (inchangé)
+    const categories = {
+      "Secours à Personne": ["VLINF 01","VSAV 01","VSAV 02"],
+      "Incendie":           ["CCFM 01","CCI 01","FPTASR 01","FPTL 01"],
+      "Echelle":            ["EPS24 01"],
+      "Operations Diverses":["VFI 01","VFIHR 01","VTUTP 01"],
+      "Commandement":       ["VLCDG 01"],
+      "Remorque Cellule Lot":[
+        "BMS 01","LBACHE 01","LBALIS 01","LCITS5 01",
+        "LDEPOL 01","LDNROY 01","LECLE 01","LELEC 01",
+        "LGAZ 01","LTRON 01","MPR 01","R2BLS 01"
+      ]
+    };
+
+    function getStatusClass(raw) {
+      const status = String(raw||"").trim().toUpperCase();
+      switch (status) {
+        /* DM, IN, DL, … selon votre liste */
+        default: return "default";
+      }
+    }
+
+    function loadVehicles(caserne) {
+      if (currentRef) currentRef.off();
+      container.innerHTML = "";
+      mapDiv.style.display = "none";
+
+      currentRef = db.ref(`CIS/${caserne}/Engins`);
+      currentRef.on("value", snap => {
+        container.innerHTML = "";
+        const data = snap.val()||{};
+        Object.entries(categories).forEach(([cat,list]) => {
+          const section = document.createElement("div");
+          section.classList.add("category-section");
+          const title = document.createElement("div");
+          title.classList.add("category-title");
+          title.textContent = cat;
+          section.appendChild(title);
+          const row = document.createElement("div");
+          row.classList.add("vehicles-row");
+          list.forEach(name => {
+            const statut = String(data[name]||"DM").toUpperCase().trim();
+            const div = document.createElement("div");
+            div.classList.add("vehicle", getStatusClass(statut));
+            div.textContent = name;
+            row.appendChild(div);
+          });
+          section.appendChild(row);
+          container.appendChild(section);
+        });
+      });
+    }
+
+    // Menu latéral toggle
+    menuToggle.addEventListener("click", () => {
+      sidebar.classList.toggle("open");
+    });
+
+    // Initialisation carte
     function initMap() {
       mapInitialized = true;
       map = L.map('map').setView([45.25, 4.77], 12.5);
@@ -148,22 +220,25 @@
       ).addTo(map);
     }
 
+    // Affichage de la carte + délai avant invalidateSize
     showMapBtn.addEventListener("click", () => {
       container.style.display = "none";
       mapDiv.style.display  = "block";
-
-      if (!mapInitialized) {
-        initMap();
-      }
-
-      // 3/ Petit délai avant invalidateSize
-      setTimeout(() => {
-        map.invalidateSize();
-      }, 200);
+      if (!mapInitialized) initMap();
+      setTimeout(() => map.invalidateSize(), 200);
     });
 
-    // Reste de votre code (chargement des véhicules, menu toggle, etc.)
-  </script>
+    // Sélecteur caserne
+    caserneSelect.addEventListener("change", () => {
+      container.style.display = "block";
+      loadVehicles(caserneSelect.value);
+    });
 
+    // Lancement initial
+    window.addEventListener("DOMContentLoaded", () => {
+      caserneSelect.value = "Ampuis";
+      loadVehicles("Ampuis");
+    });
+  </script>
 </body>
 </html>
