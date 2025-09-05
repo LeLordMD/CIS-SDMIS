@@ -37,13 +37,11 @@
       position: sticky;
       top: 0;
       z-index: 1000;
-      /* on garde flex pour centrer le bouton hamburger et le select */
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
-    /* Bouton hamburger */
     .menu-toggle {
       position: absolute;
       left: 10px;
@@ -79,22 +77,11 @@
       z-index: 999;
     }
 
-    #sidebar.open {
-      left: 0;
-    }
+    #sidebar.open { left: 0; }
+    #sidebar ul { list-style: none; padding: 0; margin: 0; }
+    #sidebar li { margin: 20px 0; text-align: center; }
 
-    #sidebar ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    #sidebar li {
-      margin: 20px 0;
-      text-align: center;
-    }
-
-    /* Bouton « Carte » sans icône et plus gros */
+    /* Bouton Carte sans icône et plus gros */
     #showMapBtn {
       background: none;
       border: none;
@@ -119,28 +106,28 @@
       z-index: 1;
     }
 
-    /* --- Vos styles de véhicules (inchangés) --- */
+    /* --- Styles véhicules (inchangés) --- */
     .category-section { margin: 20px 0; }
     .category-title { margin: 0 15px 8px; font-weight: bold; font-size: 1.2em; color: #b30000; }
     .vehicles-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 15px; }
-    .vehicle { padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 1em; flex: 0 0 auto; }
-    .DM { background-color: #d3d3d3; color: #000000; }
-    .IN { background-color: #000000; color: #ffffff; }
-    .DL { background-color: #90ee90; color: #000000; }
-    .RE { background-color: #006400; color: #000000; }
+    .vehicle { padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 1em; }
+    .DM { background-color: #d3d3d3; color: #000; }
+    .IN { background-color: #000;    color: #fff; }
+    .DL { background-color: #90ee90; color: #000; }
+    .RE { background-color: #006400; color: #000; }
     .AL { background-color: #ffeb3b; color: #d32f2f; }
-    .PA { background-color: #d32f2f; color: #ffffff; }
-    .SL { background-color: #d32f2f; color: #000000; }
-    .TH { background-color: #ffffff; color: #5c6bc0; }
-    .AH { background-color: #ffffff; color: #000000; }
-    .PC { background-color: #ffffff; color: #388e3c; }
-    .QH { background-color: #ffffff; color: #ff9800; }
-    .RD { background-color: #5c6bc0; color: #000000; }
-    .RI { background-color: #5c6bc0; color: #ffffff; }
-    .MD { background-color: #9c27b0; color: #000000; }
-    .MI { background-color: #9c27b0; color: #ffffff; }
-    .RV { background-color: #ff9800; color: #000000; }
-    .default { background-color: #d3d3d3; color: #000000; }
+    .PA { background-color: #d32f2f; color: #fff; }
+    .SL { background-color: #d32f2f; color: #000; }
+    .TH { background-color: #fff;    color: #5c6bc0; }
+    .AH { background-color: #fff;    color: #000; }
+    .PC { background-color: #fff;    color: #388e3c; }
+    .QH { background-color: #fff;    color: #ff9800; }
+    .RD { background-color: #5c6bc0; color: #000; }
+    .RI { background-color: #5c6bc0; color: #fff; }
+    .MD { background-color: #9c27b0; color: #000; }
+    .MI { background-color: #9c27b0; color: #fff; }
+    .RV { background-color: #ff9800; color: #000; }
+    .default { background-color: #d3d3d3; color: #000; }
   </style>
 </head>
 <body>
@@ -279,24 +266,30 @@
       sidebar.classList.toggle("open");
     });
 
-    // --- Affichage de la carte ---
+    // --- Affichage de la carte + invalidation de la taille ---
     showMapBtn.addEventListener("click", () => {
       container.style.display = "none";
-      mapDiv.style.display = "block";
-      if (!mapInitialized) initMap();
+      mapDiv.style.display  = "block";
+
+      if (!mapInitialized) {
+        initMap();
+      }
+      // Après que le #map soit visible, forcer Leaflet à recalculer sa taille
+      requestAnimationFrame(() => {
+        map.invalidateSize();
+      });
     });
 
     function initMap() {
       mapInitialized = true;
-      // Centre entre Ampuis, Condrieu, Sainte-Colombe
       map = L.map('map').setView([45.25, 4.77], 12.5);
       L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { attribution: 'Tiles &copy; Esri' }
+        { attribution: 'Tiles © Esri' }
       ).addTo(map);
     }
 
-    // --- Select caserne & init ---
+    // --- Sélecteur caserne & init ---
     caserneSelect.addEventListener("change", () => {
       container.style.display = "block";
       loadVehicles(caserneSelect.value);
