@@ -8,7 +8,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <!-- Leaflet -->
+  <!-- Leaflet (pour la carte) -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
@@ -22,13 +22,9 @@
   ></script>
 
   <style>
-    /* 1/ Reset hautes tailles */
-    html, body {
-      height: 100%;
-      margin: 0;
-    }
-
+    /* --- Styles généraux --- */
     body {
+      margin: 0;
       font-family: Arial, sans-serif;
       background-color: #f8f8f8;
       position: relative;
@@ -37,7 +33,9 @@
     header {
       background-color: #b30000;
       color: white;
-      padding: 10px 0;
+      padding: 10px;
+      text-align: center;
+      font-size: 1.5em;
       position: sticky;
       top: 0;
       z-index: 1000;
@@ -46,6 +44,7 @@
       justify-content: center;
     }
 
+    /* Bouton hamburger */
     .menu-toggle {
       position: absolute;
       left: 10px;
@@ -57,62 +56,91 @@
       z-index: 1001;
     }
 
-    header select {
-      display: block;
-      margin: 0 auto;
-      width: 90%;
-      max-width: 500px;
+    select {
+      margin-top: 10px;
       padding: 8px;
       font-size: 1em;
+      width: 90%;
+      max-width: 300px;
     }
 
+    /* --- Sidebar --- */
     #sidebar {
       position: fixed;
       top: 0;
       left: -250px;
       width: 250px;
       height: 100%;
-      background-color: #fff;
+      background-color: #ffffff;
       box-shadow: 2px 0 5px rgba(0,0,0,0.3);
       transition: left 0.3s ease;
       padding-top: 60px;
       z-index: 999;
     }
 
-    #sidebar.open { left: 0; }
-    #sidebar ul { list-style: none; padding: 0; margin: 0; }
-    #sidebar li { margin: 20px 0; text-align: center; }
-
-    #showMapBtn {
-      background: none;
-      border: none;
-      font-size: 1.3em;
-      cursor: pointer;
-      padding: 10px 15px;
+    #sidebar.open {
+      left: 0;
     }
 
+    #sidebar ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    #sidebar li {
+      margin: 20px 0;
+      text-align: center;
+    }
+
+    #sidebar button {
+      background: none;
+      border: none;
+      font-size: 1em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* --- Conteneurs de contenu --- */
     #vehicleContainer {
       margin-top: 20px;
       padding-bottom: 20px;
     }
 
-    /* 2/ Hauteur explicite pour #map */
     #map {
       display: none;
       position: absolute;
       top: 60px;
       left: 0;
-      width: 100%;
-      height: calc(100vh - 60px);
+      right: 0;
+      bottom: 0;
       z-index: 1;
     }
 
-    /* Styles véhicules */
+    /* --- Vos styles de véhicules (inchangés) --- */
     .category-section { margin: 20px 0; }
     .category-title { margin: 0 15px 8px; font-weight: bold; font-size: 1.2em; color: #b30000; }
     .vehicles-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 15px; }
-    .vehicle { padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 1em; }
-    /* … classes DM, IN, DL, etc. inchangées … */
+    .vehicle { padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 1em; flex: 0 0 auto; }
+    .DM { background-color: #d3d3d3; color: #000000; }
+    .IN { background-color: #000000; color: #ffffff; }
+    .DL { background-color: #90ee90; color: #000000; }
+    .RE { background-color: #006400; color: #000000; }
+    .AL { background-color: #ffeb3b; color: #d32f2f; }
+    .PA { background-color: #d32f2f; color: #ffffff; }
+    .SL { background-color: #d32f2f; color: #000000; }
+    .TH { background-color: #ffffff; color: #5c6bc0; }
+    .AH { background-color: #ffffff; color: #000000; }
+    .PC { background-color: #ffffff; color: #388e3c; }
+    .QH { background-color: #ffffff; color: #ff9800; }
+    .RD { background-color: #5c6bc0; color: #000000; }
+    .RI { background-color: #5c6bc0; color: #ffffff; }
+    .MD { background-color: #9c27b0; color: #000000; }
+    .MI { background-color: #9c27b0; color: #ffffff; }
+    .RV { background-color: #ff9800; color: #000000; }
+    .default { background-color: #d3d3d3; color: #000000; }
   </style>
 </head>
 <body>
@@ -126,22 +154,40 @@
     </select>
   </header>
 
+  <!-- Sidebar -->
   <div id="sidebar">
     <ul>
-      <li><button id="showMapBtn">Carte</button></li>
+      <li>
+        <button id="showMapBtn">
+          <span class="map-icon">&#x1F5FA;</span>
+          Carte satellite
+        </button>
+      </li>
     </ul>
   </div>
 
+  <!-- Carte Leaflet -->
   <div id="map"></div>
+
+  <!-- Conteneur des véhicules -->
   <div id="vehicleContainer"></div>
+
 
   <script>
     // -- Initialisation Firebase
-    const firebaseConfig = { /* … vos clés … */ };
+    const firebaseConfig = {
+      apiKey: "AIzaSyCe6_BM4BtT0fi6-yudBOAMIkPueq2rKYA",
+      authDomain: "cis-sdmis.firebaseapp.com",
+      databaseURL: "https://cis-sdmis-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "cis-sdmis",
+      storageBucket: "cis-sdmis.firebasestorage.app",
+      messagingSenderId: "305775040783",
+      appId: "1:305775040783:web:28abe37dc830d2e3ab067a"
+    };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // Références DOM
+    // -- Références DOM
     const caserneSelect  = document.getElementById("caserneSelect");
     const container      = document.getElementById("vehicleContainer");
     const menuToggle     = document.getElementById("menuToggle");
@@ -152,7 +198,7 @@
     let currentRef = null;
     let map, mapInitialized = false;
 
-    // Catégories & ordre (inchangé)
+    // -- Catégories & ordre
     const categories = {
       "Secours à Personne": ["VLINF 01","VSAV 01","VSAV 02"],
       "Incendie":           ["CCFM 01","CCI 01","FPTASR 01","FPTL 01"],
@@ -169,8 +215,23 @@
     function getStatusClass(raw) {
       const status = String(raw||"").trim().toUpperCase();
       switch (status) {
-        /* DM, IN, DL, … selon votre liste */
-        default: return "default";
+        case "DL": return "DL";
+        case "RE": return "RE";
+        case "AL": return "AL";
+        case "PA": return "PA";
+        case "SL": return "SL";
+        case "TH": return "TH";
+        case "AH": return "AH";
+        case "PC": return "PC";
+        case "QH": return "QH";
+        case "RD": return "RD";
+        case "RI": return "RI";
+        case "MD": return "MD";
+        case "MI": return "MI";
+        case "IN": return "IN";
+        case "DM": return "DM";
+        case "RV": return "RV";
+        default:   return "default";
       }
     }
 
@@ -183,6 +244,16 @@
       currentRef.on("value", snap => {
         container.innerHTML = "";
         const data = snap.val()||{};
+        if (!Object.keys(data).length) {
+          container.innerHTML = `
+            <div class="category-section">
+              <div class="category-title">Véhicules</div>
+              <div class="vehicles-row">
+                <div class="vehicle default">VSAV 01</div>
+              </div>
+            </div>`;
+          return;
+        }
         Object.entries(categories).forEach(([cat,list]) => {
           const section = document.createElement("div");
           section.classList.add("category-section");
@@ -202,39 +273,37 @@
           section.appendChild(row);
           container.appendChild(section);
         });
-      });
+      }, err => console.error("Erreur RTDB :", err));
     }
 
-    // Menu latéral toggle
+    // --- Menu latéral toggle ---
     menuToggle.addEventListener("click", () => {
       sidebar.classList.toggle("open");
     });
 
-    // Initialisation carte
+    // --- Affichage de la carte ---
+    showMapBtn.addEventListener("click", () => {
+      container.style.display = "none";
+      mapDiv.style.display = "block";
+      if (!mapInitialized) initMap();
+    });
+
     function initMap() {
       mapInitialized = true;
+      // Centre entre Ampuis, Condrieu, Sainte-Colombe
       map = L.map('map').setView([45.25, 4.77], 12.5);
       L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { attribution: 'Tiles © Esri' }
+        { attribution: 'Tiles &copy; Esri' }
       ).addTo(map);
     }
 
-    // Affichage de la carte + délai avant invalidateSize
-    showMapBtn.addEventListener("click", () => {
-      container.style.display = "none";
-      mapDiv.style.display  = "block";
-      if (!mapInitialized) initMap();
-      setTimeout(() => map.invalidateSize(), 200);
-    });
-
-    // Sélecteur caserne
+    // --- Select caserne & init ---
     caserneSelect.addEventListener("change", () => {
       container.style.display = "block";
       loadVehicles(caserneSelect.value);
     });
 
-    // Lancement initial
     window.addEventListener("DOMContentLoaded", () => {
       caserneSelect.value = "Ampuis";
       loadVehicles("Ampuis");
