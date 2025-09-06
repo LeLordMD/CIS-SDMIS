@@ -127,21 +127,20 @@
 
     /* Mobile responsive adjustments */
 @media (max-width: 600px) {
-  /* Topbar en colonne pour mieux tenir sur petit écran */
+  /* Topbar en ligne, bouton à gauche + select qui remplit le reste */
   #topbar {
-    flex-direction: column;
-    height: auto;
-    padding: 5px;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    padding: 0.5rem;
   }
   #menuToggle {
-    font-size: 1.2rem;
-    margin-bottom: 5px;
+    margin: 0;
   }
   #caserneSelect {
-    width: 100%;
-    max-width: none;
-    font-size: 0.9rem;
+    flex: 1;
+    margin-left: 0.5rem;
+    font-size: 1.2rem;
+    width: auto;
   }
 
   /* Sidebar pleine largeur */
@@ -153,13 +152,14 @@
     left: 0;
   }
 
-  /* Contenu décalé sous le topbar agrandi */
+  /* Carte & liste véhicule, on déplace sur –300px */
   #map,
   #vehicleContainer {
-    top: 100px;
-    bottom: 0;
+    /* top/bottom conservés d’après ta config actuelle */
+    left: -300px;
   }
 }
+
 
   </style>
 </head>
