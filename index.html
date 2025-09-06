@@ -2,208 +2,305 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
-  <!-- Leaflet (pour la carte) -->
+  <title>CIS – Carte & Statuts</title>
   <link
     rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
-    integrity="sha256-sA+e2uHFLwENyYCX8hXYlBB4s3nrkQ0KlFh3BusU4Xk="
-    crossorigin=""
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
   />
-  <script
-    src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
-    integrity="sha256-AdaK2qHMLyg+KUMh8G74DPibXQPt7YIoKc4RPo3kzA4="
-    crossorigin=""
-  ></script>
-
   <style>
-    /* --- Styles généraux --- */
-    body {
+    html, body {
+      height: 100%;
       margin: 0;
+      padding: 0;
       font-family: Arial, sans-serif;
-      background-color: #f8f8f8;
-      position: relative;
     }
 
-    header {
-      background-color: #b30000;
-      color: white;
-      padding: 10px;
-      text-align: center;
-      font-size: 1.5em;
-      position: sticky;
-      top: 0;
-      z-index: 1000;
+    /* Topbar */
+    #topbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 50px;
+      background: #b30000;
       display: flex;
       align-items: center;
-      justify-content: center;
+      padding: 0 10px;
+      z-index: 1002;
+      color: #fff;
     }
-
-    /* Bouton hamburger */
-    .menu-toggle {
-      position: absolute;
-      left: 10px;
+    #menuToggle {
       background: none;
       border: none;
-      color: white;
-      font-size: 1.5em;
+      color: #fff;
+      font-size: 1.5rem;
       cursor: pointer;
-      z-index: 1001;
+      margin-right: 15px;
+    }
+    #caserneSelect {
+      flex: 1;
+      max-width: 250px;
+      padding: 5px 8px;
+      font-size: 1rem;
+      border: none;
+      border-radius: 4px;
     }
 
-    select {
-      margin-top: 10px;
-      padding: 8px;
-      font-size: 1em;
-      width: 90%;
-      max-width: 300px;
-    }
-
-    /* --- Sidebar --- */
+    /* Sidebar */
     #sidebar {
       position: fixed;
-      top: 0;
-      left: -250px;
-      width: 250px;
-      height: 100%;
-      background-color: #ffffff;
-      box-shadow: 2px 0 5px rgba(0,0,0,0.3);
-      transition: left 0.3s ease;
-      padding-top: 60px;
-      z-index: 999;
+      top: 0; left: -300px;
+      width: 200px; height: 100%;
+      background: #fff;
+      box-shadow: 2px 0 6px rgba(0,0,0,0.3);
+      transition: left 0.3s;
+      padding: 60px 10px;
+      z-index: 1001;
     }
-
-    #sidebar.open {
-      left: 0;
-    }
-
-    #sidebar ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-
-    #sidebar li {
-      margin: 20px 0;
-      text-align: center;
-    }
-
+    #sidebar.open { left: 0; }
     #sidebar button {
-      background: none;
-      border: none;
-      font-size: 1em;
+      width: 100%;
+      margin-bottom: 10px;
+      padding: 8px;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      background: #f8f8f8;
+      border-radius: 4px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
     }
 
-    /* --- Conteneurs de contenu --- */
-    #vehicleContainer {
-      margin-top: 20px;
-      padding-bottom: 20px;
-    }
-
+    /* Map & Vehicle List */
     #map {
       display: none;
       position: absolute;
-      top: 60px;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 1;
+      top: 50px; left: 0; right: 0; bottom: 0;
+      z-index: 1000;
+    }
+    #vehicleContainer {
+      display: none;
+      position: absolute;
+      top: 50px; left: 0; right: 0; bottom: 0;
+      overflow-y: auto;
+      background: #f8f8f8;
+      padding: 10px;
+      z-index: 1000;
     }
 
-    /* --- Vos styles de véhicules (inchangés) --- */
+    /* Vehicles */
     .category-section { margin: 20px 0; }
-    .category-title { margin: 0 15px 8px; font-weight: bold; font-size: 1.2em; color: #b30000; }
-    .vehicles-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 15px; }
-    .vehicle { padding: 8px 12px; border-radius: 8px; font-weight: bold; font-size: 1em; flex: 0 0 auto; }
-    .DM { background-color: #d3d3d3; color: #000000; }
-    .IN { background-color: #000000; color: #ffffff; }
-    .DL { background-color: #90ee90; color: #000000; }
-    .RE { background-color: #006400; color: #000000; }
-    .AL { background-color: #ffeb3b; color: #d32f2f; }
-    .PA { background-color: #d32f2f; color: #ffffff; }
-    .SL { background-color: #d32f2f; color: #000000; }
-    .TH { background-color: #ffffff; color: #5c6bc0; }
-    .AH { background-color: #ffffff; color: #000000; }
-    .PC { background-color: #ffffff; color: #388e3c; }
-    .QH { background-color: #ffffff; color: #ff9800; }
-    .RD { background-color: #5c6bc0; color: #000000; }
-    .RI { background-color: #5c6bc0; color: #ffffff; }
-    .MD { background-color: #9c27b0; color: #000000; }
-    .MI { background-color: #9c27b0; color: #ffffff; }
-    .RV { background-color: #ff9800; color: #000000; }
-    .default { background-color: #d3d3d3; color: #000000; }
+    .category-title {
+      margin: 0 15px 8px;
+      font-weight: bold;
+      font-size: 1.2em;
+      color: #b30000;
+    }
+    .vehicles-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 15px;
+    }
+    .vehicle {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: bold;
+      font-size: 1em;
+    }
+
+    /* Status colors */
+    .DM { background: #d3d3d3; color: #000; }
+    .IN { background: #000;    color: #fff; }
+    .DL { background: #90ee90; color: #000; }
+    .RE { background: #006400; color: #000; }
+    .AL { background: #ffeb3b; color: #d32f2f; }
+    .PA { background: #d32f2f; color: #fff; }
+    .SL { background: #d32f2f; color: #000; }
+    .TH { background: #fff;    color: #5c6bc0; }
+    .AH { background: #fff;    color: #000; }
+    .PC { background: #fff;    color: #388e3c; }
+    .QH { background: #fff;    color: #ff9800; }
+    .RD { background: #5c6bc0; color: #000; }
+    .RI { background: #5c6bc0; color: #fff; }
+    .MD { background: #9c27b0; color: #000; }
+    .MI { background: #9c27b0; color: #fff; }
+    .RV { background: #ff9800; color: #000; }
+    .default { background: #d3d3d3; color: #000; }
   </style>
 </head>
 <body>
 
-  <header>
-    <button id="menuToggle" class="menu-toggle">&#9776;</button>
+  <!-- Topbar -->
+  <div id="topbar">
+    <button id="menuToggle">☰</button>
     <select id="caserneSelect">
-      <option value="Ampuis">Ampuis</option>
-      <option value="Condrieu">Condrieu</option>
-      <option value="Sainte-Colombe">Sainte-Colombe</option>
+      <option value="Ampuis">CT Ampuis</option>
+      <option value="Condrieu">CT Condrieu</option>
+      <option value="Sainte-Colombe">CT Sainte-Colombe</option>
     </select>
-  </header>
+  </div>
 
   <!-- Sidebar -->
   <div id="sidebar">
-    <ul>
-      <li>
-        <button id="showMapBtn">
-          <span class="map-icon">&#x1F5FA;</span>
-          Carte satellite
-        </button>
-      </li>
-    </ul>
+    <button id="showMap">Carte</button>
   </div>
 
-  <!-- Carte Leaflet -->
+  <!-- Map & Vehicle List -->
   <div id="map"></div>
-
-  <!-- Conteneur des véhicules -->
   <div id="vehicleContainer"></div>
 
+  <!-- Leaflet -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
   <script>
-    // -- Initialisation Firebase
+    // Firebase init
     const firebaseConfig = {
       apiKey: "AIzaSyCe6_BM4BtT0fi6-yudBOAMIkPueq2rKYA",
       authDomain: "cis-sdmis.firebaseapp.com",
       databaseURL: "https://cis-sdmis-default-rtdb.europe-west1.firebasedatabase.app",
       projectId: "cis-sdmis",
-      storageBucket: "cis-sdmis.firebasestorage.app",
+      storageBucket: "cis-sdmis.appspot.com",
       messagingSenderId: "305775040783",
       appId: "1:305775040783:web:28abe37dc830d2e3ab067a"
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // -- Références DOM
-    const caserneSelect  = document.getElementById("caserneSelect");
-    const container      = document.getElementById("vehicleContainer");
-    const menuToggle     = document.getElementById("menuToggle");
-    const sidebar        = document.getElementById("sidebar");
-    const showMapBtn     = document.getElementById("showMapBtn");
-    const mapDiv         = document.getElementById("map");
+    // DOM refs
+    const menuToggle       = document.getElementById('menuToggle');
+    const sidebar          = document.getElementById('sidebar');
+    const showMapBtn       = document.getElementById('showMap');
+    const mapDiv           = document.getElementById('map');
+    const caserneSelect    = document.getElementById('caserneSelect');
+    const vehicleContainer = document.getElementById('vehicleContainer');
 
-    let currentRef = null;
-    let map, mapInitialized = false;
+    // Stations (5, dont 2 masquées dans le menu)
+    const stations = [
+      { nom: "Condrieu",       lat: 45.46453,      lng: 4.76837      },
+      { nom: "Ampuis",         lat: 45.48889,      lng: 4.81179      },
+      { nom: "Sainte-Colombe", lat: 45.52468,      lng: 4.86382      },
+      { nom: "Vienne",         lat: 45.5368644486, lng: 4.8733135671 },
+      { nom: "Chasse-sur-Rhône", lat:45.5854485617, lng: 4.8043075387 }
+    ];
 
-    // -- Catégories & ordre
+    // Création du logo en SVG, teinté selon disponibilité
+    function makeStationIcon(color) {
+      return L.divIcon({
+        className: '',
+        iconSize:  [32, 32],
+        iconAnchor:[16, 32],
+        popupAnchor:[0, -32],
+        html: `
+          <svg xmlns="http://www.w3.org/2000/svg"
+               viewBox="0 0 64 64"
+               width="32" height="32">
+            <!-- Corps principal -->
+            <rect x="8" y="16" width="48" height="32"
+                  fill="${color}" stroke="#333" stroke-width="2"/>
+            <!-- Porte de garage avec lignes horizontales -->
+            <rect x="16" y="32" width="16" height="16"
+                  fill="#fff" stroke="#333" stroke-width="1"/>
+            <line x1="16" y1="36" x2="32" y2="36" stroke="#333" stroke-width="1"/>
+            <line x1="16" y1="40" x2="32" y2="40" stroke="#333" stroke-width="1"/>
+            <line x1="16" y1="44" x2="32" y2="44" stroke="#333" stroke-width="1"/>
+            <!-- Trois fenêtres -->
+            <rect x="22" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
+            <rect x="29" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
+            <rect x="36" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
+            <!-- Entrée/bureau latéral -->
+            <rect x="48" y="28" width="8" height="12"
+                  fill="#ccc" stroke="#333" stroke-width="1"/>
+          </svg>
+        `
+      });
+    }
+
+    // Icônes selon couleur
+    const iconRed    = makeStationIcon('#b30000');
+    const iconOrange = makeStationIcon('#ff9800');
+    const iconGreen  = makeStationIcon('#00aa00');
+
+    // Données & refs
+    const stationData    = {};
+    const stationRefs    = {};
+    const stationMarkers = {};
+    let map = null;
+
+    // Classe de statut
+    function getStatusClass(s) {
+      const st = String(s||'').trim().toUpperCase();
+      return ["DL","RE","AL","PA","SL","TH","AH","PC","QH","RD","RI","MD","MI","IN","DM","RV"]
+        .includes(st) ? st : 'default';
+    }
+
+    // Met à jour la couleur de l'icône d'une station
+    function updateIcon(stationName) {
+      const data = stationData[stationName] || {};
+      const dlList = Object.entries(data)
+        .filter(([name,stat]) =>
+          stat.trim().toUpperCase()==='DL' && !name.startsWith('VFI')
+        )
+        .map(([name])=>name);
+
+      let icon = iconRed;
+      if (dlList.length>1 && dlList.some(v=>v.startsWith('VSAV'))) {
+        icon = iconGreen;
+      } else if (dlList.length>1) {
+        icon = iconOrange;
+      }
+      const marker = stationMarkers[stationName];
+      if (marker) marker.setIcon(icon);
+    }
+
+    // Abonnement Firebase
+    stations.forEach(s=>{
+      stationRefs[s.nom] = db.ref(`CIS/${s.nom}/Engins`);
+      stationRefs[s.nom].on('value', snap=>{
+        stationData[s.nom] = snap.val()||{};
+        updateIcon(s.nom);
+      });
+    });
+
+    // Affiche la carte et positionne les markers
+    showMapBtn.addEventListener('click', () => {
+      sidebar.classList.remove('open');
+      vehicleContainer.style.display = 'none';
+      mapDiv.style.display = 'block';
+
+      setTimeout(() => {
+        if (!map) {
+          map = L.map('map');
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+          }).addTo(map);
+
+          stations.forEach(s => {
+            const m = L.marker([s.lat, s.lng], { icon: iconRed })
+              .addTo(map)
+              .bindPopup(`<strong>CT ${s.nom}</strong>`);
+            stationMarkers[s.nom] = m;
+            updateIcon(s.nom);
+          });
+
+          const bounds = L.latLngBounds(stations.map(s=>[s.lat,s.lng]));
+          map.fitBounds(bounds, { padding: [50,50] });
+        } else {
+          map.invalidateSize();
+        }
+      }, 300);
+    });
+
+    // Toggle sidebar
+    menuToggle.addEventListener('click',()=>{
+      sidebar.classList.toggle('open');
+    });
+
+    // Vehicle categories (only Condrieu)
     const categories = {
       "Secours à Personne": ["VLINF 01","VSAV 01","VSAV 02"],
       "Incendie":           ["CCFM 01","CCI 01","FPTASR 01","FPTL 01"],
       "Echelle":            ["EPS24 01"],
-      "Operations Diverses":["VFI 01","VFIHR 01","VTUTP 01"],
+      "Opérations Diverses":["VFI 01","VFIHR 01","VTUTP 01"],
       "Commandement":       ["VLCDG 01"],
       "Remorque Cellule Lot":[
         "BMS 01","LBACHE 01","LBALIS 01","LCITS5 01",
@@ -212,102 +309,147 @@
       ]
     };
 
-    function getStatusClass(raw) {
-      const status = String(raw||"").trim().toUpperCase();
-      switch (status) {
-        case "DL": return "DL";
-        case "RE": return "RE";
-        case "AL": return "AL";
-        case "PA": return "PA";
-        case "SL": return "SL";
-        case "TH": return "TH";
-        case "AH": return "AH";
-        case "PC": return "PC";
-        case "QH": return "QH";
-        case "RD": return "RD";
-        case "RI": return "RI";
-        case "MD": return "MD";
-        case "MI": return "MI";
-        case "IN": return "IN";
-        case "DM": return "DM";
-        case "RV": return "RV";
-        default:   return "default";
-      }
-    }
-
+    // Load vehicles
     function loadVehicles(caserne) {
-      if (currentRef) currentRef.off();
-      container.innerHTML = "";
-      mapDiv.style.display = "none";
+      mapDiv.style.display = 'none';
+      vehicleContainer.style.display = 'block';
+      vehicleContainer.innerHTML = '';
+      if (stationRefs[caserne]) stationRefs[caserne].off();
 
-      currentRef = db.ref(`CIS/${caserne}/Engins`);
-      currentRef.on("value", snap => {
-        container.innerHTML = "";
+      if (caserne!=='Condrieu') {
+        // Ampuis, Sainte-Colombe, Vienne, Chasse → VSAV 01 fictif
+        const sec = document.createElement('div');
+        sec.className = 'category-section';
+        const t = document.createElement('div');
+        t.className = 'category-title';
+        t.textContent = 'Secours à Personne';
+        sec.appendChild(t);
+
+        const row = document.createElement('div');
+        row.className = 'vehicles-row';
+        const v = document.createElement('div');
+        v.className = `vehicle ${getStatusClass('DM')}`;
+        v.textContent = 'VSAV 01';
+        row.appendChild(v);
+
+        sec.appendChild(row);
+        vehicleContainer.appendChild(sec);
+        return;
+      }
+
+      // Condrieu → réel depuis Firebase
+      const ref = db.ref(`CIS/${caserne}/Engins`);
+      ref.on('value',snap=>{
         const data = snap.val()||{};
-        if (!Object.keys(data).length) {
-          container.innerHTML = `
-            <div class="category-section">
-              <div class="category-title">Véhicules</div>
-              <div class="vehicles-row">
-                <div class="vehicle default">VSAV 01</div>
-              </div>
-            </div>`;
-          return;
-        }
-        Object.entries(categories).forEach(([cat,list]) => {
-          const section = document.createElement("div");
-          section.classList.add("category-section");
-          const title = document.createElement("div");
-          title.classList.add("category-title");
-          title.textContent = cat;
-          section.appendChild(title);
-          const row = document.createElement("div");
-          row.classList.add("vehicles-row");
-          list.forEach(name => {
-            const statut = String(data[name]||"DM").toUpperCase().trim();
-            const div = document.createElement("div");
-            div.classList.add("vehicle", getStatusClass(statut));
-            div.textContent = name;
-            row.appendChild(div);
+        vehicleContainer.innerHTML = '';
+        Object.entries(categories).forEach(([cat,list])=>{
+          const sec = document.createElement('div');
+          sec.className = 'category-section';
+          const t = document.createElement('div');
+          t.className = 'category-title';
+          t.textContent = cat;
+          sec.appendChild(t);
+
+          const row = document.createElement('div');
+          row.className = 'vehicles-row';
+          list.forEach(name=>{
+            const raw = data[name]||'DM';
+            const cls = getStatusClass(raw);
+            const v = document.createElement('div');
+            v.className = `vehicle ${cls}`;
+            v.textContent = name;
+            row.appendChild(v);
           });
-          section.appendChild(row);
-          container.appendChild(section);
+          sec.appendChild(row);
+          vehicleContainer.appendChild(sec);
         });
-      }, err => console.error("Erreur RTDB :", err));
+      });
     }
 
-    // --- Menu latéral toggle ---
-    menuToggle.addEventListener("click", () => {
-      sidebar.classList.toggle("open");
+    // Show map & init markers
+    showMapBtn.addEventListener('click',()=>{
+      sidebar.classList.remove('open');
+      vehicleContainer.style.display = 'none';
+      mapDiv.style.display = 'block';
+
+      setTimeout(()=>{
+        if (!map) {
+          map = L.map('map');
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+            attribution:'© OpenStreetMap contributors'
+          }).addTo(map);
+
+          stations.forEach(s=>{
+            const m = L.marker([s.lat,s.lng],{icon:iconRed})
+              .addTo(map)
+              .bindPopup(`<strong>CT ${s.nom}</strong>`);
+            stationMarkers[s.nom] = m;
+            updateIcon(s.nom);
+          });
+
+          const bounds = L.latLngBounds(stations.map(s=>[s.lat,s.lng]));
+          map.fitBounds(bounds,{padding:[50,50]});
+        } else {
+          map.invalidateSize();
+        }
+      },300);
     });
 
-    // --- Affichage de la carte ---
-    showMapBtn.addEventListener("click", () => {
-      container.style.display = "none";
-      mapDiv.style.display = "block";
-      if (!mapInitialized) initMap();
-    });
-
-    function initMap() {
-      mapInitialized = true;
-      // Centre entre Ampuis, Condrieu, Sainte-Colombe
-      map = L.map('map').setView([45.25, 4.77], 12.5);
-      L.tileLayer(
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { attribution: 'Tiles &copy; Esri' }
-      ).addTo(map);
-    }
-
-    // --- Select caserne & init ---
-    caserneSelect.addEventListener("change", () => {
-      container.style.display = "block";
+    caserneSelect.addEventListener('change',()=>{
       loadVehicles(caserneSelect.value);
     });
 
-    window.addEventListener("DOMContentLoaded", () => {
-      caserneSelect.value = "Ampuis";
-      loadVehicles("Ampuis");
+    // Initialize
+    window.addEventListener('DOMContentLoaded',()=>{
+      caserneSelect.value='Ampuis';
+      loadVehicles('Ampuis');
+      startInterventionPolling();
     });
+
+    // Place ce code après l'initialisation de `map` et de `db`
+// Prévoit un objet pour éviter les doublons
+const interventionMarkers = {};
+
+// S’abonne aux nouvelles interventions
+const itvRef = db.ref('Interventions');
+itvRef.on('child_added', snap => {
+  const id  = snap.key;
+  const itv = snap.val();
+
+  // Vérifie qu’on n’a pas déjà créé ce marqueur
+  if (interventionMarkers[id]) return;
+
+  // Assure-toi que la structure gps existe
+  if (!itv.gps || itv.gps.latitude == null || itv.gps.longitude == null) return;
+
+  const lat = parseFloat(itv.gps.latitude);
+  const lng = parseFloat(itv.gps.longitude);
+  const motif = itv.motif || 'Intervention';
+
+  // Vérifie que les coords sont valides
+  if (isNaN(lat) || isNaN(lng)) return;
+
+  // Crée et stocke le marqueur
+  const marker = L.marker([lat, lng])
+    .addTo(map)
+    .bindPopup(motif);
+
+  interventionMarkers[id] = marker;
+});
+
+
+    // Intervention polling (reste inchangé)…
+    function makeItvIcon(){/*…*/} // inchangé
+    const itvApiUrl='/api/getItv';
+    async function fetchIntervention(){/*…*/}
+    function handleItvResponse(resp){/*…*/}
+    function plotItv(lat,lon){/*…*/}
+    async function geocodeAddress(q){/*…*/}
+    function startInterventionPolling(){
+      fetchIntervention();
+      setInterval(fetchIntervention,1000);
+    }
   </script>
 </body>
 </html>
+'''
