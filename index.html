@@ -144,10 +144,10 @@
   }
 
   /* Sidebar pleine largeur */
-  #sidebar {
-    width: 40%;
-    left: -150%;
+   #sidebar {
+    top: 3.5rem; /* ajuste selon la hauteur réelle de ta topbar */
   }
+  
   #sidebar.open {
     left: 0;
   }
@@ -155,8 +155,15 @@
   /* Carte & liste véhicule, on déplace sur –300px */
   #map,
   #vehicleContainer {
-    /* top/bottom conservés d’après ta config actuelle */
-    left: -300px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  #vehicleContainer .vehicle {
+    width: 40px;
+    height: 40px;
+    margin: 0.5rem;
   }
 }
 
