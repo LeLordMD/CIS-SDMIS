@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CIS – Carte & Statuts</title>
   <link
     rel="stylesheet"
@@ -123,6 +124,43 @@
     .MI { background: #9c27b0; color: #fff; }
     .RV { background: #ff9800; color: #000; }
     .default { background: #d3d3d3; color: #000; }
+
+    /* Mobile responsive adjustments */
+@media (max-width: 600px) {
+  /* Topbar en colonne pour mieux tenir sur petit écran */
+  #topbar {
+    flex-direction: column;
+    height: auto;
+    padding: 5px;
+    align-items: stretch;
+  }
+  #menuToggle {
+    font-size: 1.2rem;
+    margin-bottom: 5px;
+  }
+  #caserneSelect {
+    width: 100%;
+    max-width: none;
+    font-size: 0.9rem;
+  }
+
+  /* Sidebar pleine largeur */
+  #sidebar {
+    width: 100%;
+    left: -100%;
+  }
+  #sidebar.open {
+    left: 0;
+  }
+
+  /* Contenu décalé sous le topbar agrandi */
+  #map,
+  #vehicleContainer {
+    top: 100px;
+    bottom: 0;
+  }
+}
+
   </style>
 </head>
 <body>
