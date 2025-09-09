@@ -21,7 +21,7 @@
       z-index: 1001;
     }
 
-    /* Content */
+    /* Main content */
     #content {
       position: absolute; top: 50px; bottom: 50px;
       left: 0; right: 0;
@@ -51,7 +51,7 @@
       background: #ccc;
     }
 
-    /* Casernes list */
+    /* Station list */
     .station-item {
       padding: 10px; border-bottom: 1px solid #ccc;
       background: #fff; font-weight: bold;
@@ -59,7 +59,23 @@
     }
     .station-item:hover { background: #eee; }
 
-    /* Category sections */
+    /* Intervention list */
+    .intervention-item {
+      padding: 10px; border-bottom: 1px solid #ccc;
+      background: #fff; font-weight: bold;
+      cursor: pointer;
+    }
+    .intervention-item:hover { background: #eee; }
+
+    /* Synoptics */
+    .synoptic,
+    .interv-synoptic {
+      padding: 10px 0 20px 0;
+      background: #fafafa;
+    }
+    .hidden { display: none; }
+
+    /* Categories in casernes */
     .category-section {
       margin: 20px 15px;
     }
@@ -70,22 +86,6 @@
       font-weight: bold;
     }
 
-    /* Synoptics */
-    .synoptic,
-    .interv-synoptic {
-      padding: 10px 0 20px 0;
-      background: #fafafa;
-    }
-    .hidden { display: none; }
-
-    /* Interventions list */
-    .intervention-item {
-      padding: 10px; border-bottom: 1px solid #ccc;
-      background: #fff; font-weight: bold;
-      cursor: pointer;
-    }
-    .intervention-item:hover { background: #eee; }
-
     /* Vehicle badges */
     .vehicles-row {
       display: flex; flex-wrap: wrap; gap: 6px;
@@ -94,6 +94,7 @@
     .vehicle {
       padding: 6px 10px; border-radius: 6px;
       font-size: 0.9em; font-weight: bold;
+      cursor: pointer;
     }
     .DM { background: #d3d3d3; color: #000; }
     .IN { background: #000;    color: #fff; }
@@ -118,6 +119,11 @@
       color: inherit;
       text-decoration: none;
     }
+
+    @media (max-width:600px) {
+      .vehicle { font-size: 0.8em; }
+      .category-title { font-size: 1em; }
+    }
   </style>
 </head>
 <body>
@@ -140,7 +146,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <script>
-    // Firebase init
+    // 1) Firebase init
     const firebaseConfig = {
       apiKey: "AIzaSyCe6_BM4BtT0fi6-yudBOAMIkPueq2rKYA",
       authDomain: "cis-sdmis.firebaseapp.com",
@@ -153,7 +159,7 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // DOM refs
+    // 2) DOM refs
     const mapDiv           = document.getElementById('map');
     const casernesDiv      = document.getElementById('casernesList');
     const intervsDiv       = document.getElementById('interventionsList');
@@ -161,15 +167,14 @@
     const btnCasernes      = document.getElementById('btnCasernes');
     const btnInterventions = document.getElementById('btnInterventions');
 
-    // Data definitions
+    // 3) Data definitions
     const stations = [
-      { nom:"Ampuis",          lat:45.48889,      lng:4.81179      },
+      { nom:"Ampuis",          lat:45.48889,      lng:4.81179 },
       { nom:"Chasse-sur-Rhône",lat:45.5854485617, lng:4.8043075387 },
-      { nom:"Condrieu",        lat:45.46453,      lng:4.76837      },
-      { nom:"Sainte-Colombe",  lat:45.52468,      lng:4.86382      },
+      { nom:"Condrieu",        lat:45.46453,      lng:4.76837 },
+      { nom:"Sainte-Colombe",  lat:45.52468,      lng:4.86382 },
       { nom:"Vienne",          lat:45.5368644486, lng:4.8733135671 }
     ];
-    // Standard categories for Condrieu
     const categories = {
       "Secours à Personne":["VLINF 01","VSAV 01","VSAV 02"],
       "Incendie":["CCFM 01","CCI 01","FPTASR 01","FPTL 01"],
@@ -182,13 +187,11 @@
         "LGAZ 01","LTRON 01","MPR 01","R2BLS 01"
       ]
     };
-    // Custom categories for Vienne & Chasse
     const categoriesVienne = {
       "Secours à Personne":["VSAV 01","VSAV 02","VSAV 03"],
       "Incendie":["FPTSR 01","FPTL 01","CCFM 01","CCGC 01","DA 01"],
       "Echelle":["EPS 01"],
       "Opérations Diverses":["VL 01","VL 02","VLHR 01","VTUE 01"],
-      "Risques Chimiques":["FIRT 01"],
       "Secours nautique":["BMS 01","BPS 01","VSA 01"]
     };
     const categoriesChasse = {
@@ -204,55 +207,41 @@
         .includes(st) ? st : 'default';
     }
 
-    // Station statuses for CIS-based
-    const stationData    = {};
-    const stationRefs    = {};
-    const stationMarkers = {};
-    // Centre statuses for Vienne & Chasse
-    const centreData = {};
-    const centreRefs = {};
+    // 4) Track statuses & interventions
+    const stationData    = {}, stationRefs    = {}, stationMarkers    = {};
+    const centreData     = {}, centreRefs     = {};
+    const engagedMap     = {};  // clé "Station_Code" → id intervention
+    const interventionMarkersRhône = {}, interventionMarkersIsere = {};
 
-    // Initialize refs for all stations
-    stations.forEach(s => {
-      if (s.nom === "Vienne" || s.nom === "Chasse-sur-Rhône") {
-        // custom path for these two
+    stations.forEach(s=>{
+      if (s.nom==="Vienne"||s.nom==="Chasse-sur-Rhône") {
         centreRefs[s.nom] = db.ref(`Isère/Centre/${s.nom}`);
-        centreRefs[s.nom].on('value', snap => {
+        centreRefs[s.nom].on('value', snap=>{
           centreData[s.nom] = snap.val()||{};
+          updateIcon(s.nom);
         });
       } else {
-        // standard CIS path
         stationRefs[s.nom] = db.ref(`CIS/${s.nom}/Engins`);
-        stationRefs[s.nom].on('value', snap => {
+        stationRefs[s.nom].on('value', snap=>{
           stationData[s.nom] = snap.val()||{};
           updateIcon(s.nom);
         });
       }
     });
 
-    // Make icon for station markers
+    // 5) Icons
     function makeStationIcon(color) {
       return L.divIcon({
-        html: `<svg viewBox="0 0 64 64" width="32" height="32"
-                      xmlns="http://www.w3.org/2000/svg">
-                 <rect x="8" y="16" width="48" height="32"
-                       fill="${color}" stroke="#333" stroke-width="2"/>
-                 <rect x="16" y="32" width="16" height="16"
-                       fill="#fff" stroke="#333" stroke-width="1"/>
-                 <line x1="16" y1="36" x2="32" y2="36"
-                       stroke="#333" stroke-width="1"/>
-                 <line x1="16" y1="40" x2="32" y2="40"
-                       stroke="#333" stroke-width="1"/>
-                 <line x1="16" y1="44" x2="32" y2="44"
-                       stroke="#333" stroke-width="1"/>
-                 <rect x="22" y="20" width="6" height="4"
-                       fill="#fff" stroke="#333" stroke-width="1"/>
-                 <rect x="29" y="20" width="6" height="4"
-                       fill="#fff" stroke="#333" stroke-width="1"/>
-                 <rect x="36" y="20" width="6" height="4"
-                       fill="#fff" stroke="#333" stroke-width="1"/>
-                 <rect x="48" y="28" width="8" height="12"
-                       fill="#ccc" stroke="#333" stroke-width="1"/>
+        html: `<svg viewBox="0 0 64 64" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+                 <rect x="8" y="16" width="48" height="32" fill="${color}" stroke="#333" stroke-width="2"/>
+                 <rect x="16" y="32" width="16" height="16" fill="#fff" stroke="#333" stroke-width="1"/>
+                 <line x1="16" y1="36" x2="32" y2="36" stroke="#333" stroke-width="1"/>
+                 <line x1="16" y1="40" x2="32" y2="40" stroke="#333" stroke-width="1"/>
+                 <line x1="16" y1="44" x2="32" y2="44" stroke="#333" stroke-width="1"/>
+                 <rect x="22" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
+                 <rect x="29" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
+                 <rect x="36" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
+                 <rect x="48" y="28" width="8" height="12" fill="#ccc" stroke="#333" stroke-width="1"/>
                </svg>`,
         className: '',
         iconSize:   [32,32],
@@ -264,11 +253,10 @@
     const iconOrange = makeStationIcon('#ff9800');
     const iconGreen  = makeStationIcon('#00aa00');
 
-    // Update CIS-based station icon by DL count
-    function updateIcon(name) {
+    function updateDefaultIcon(name) {
       const data = stationData[name]||{};
       const down = Object.entries(data)
-        .filter(([_,st])=> st.trim().toUpperCase()==='DL')
+        .filter(([_,st])=>st.trim().toUpperCase()==='DL')
         .map(([n])=>n);
       let ic = iconRed;
       if (down.length>1 && down.some(v=>v.startsWith('VSAV'))) ic = iconGreen;
@@ -276,31 +264,72 @@
       stationMarkers[name]?.setIcon(ic);
     }
 
-    // Intervention icon
-    function makeItvIcon() {
+    function updateVienneIcon() {
+      const d = centreData['Vienne']||{};
+      const vs = ['VSAV 01','VSAV 02','VSAV 03']
+        .map(c=> (d[c]||'').toUpperCase());
+      const anyAvail = vs.some(s=>['DL','RD'].includes(s));
+      if (anyAvail) {
+        stationMarkers['Vienne']?.setIcon(iconGreen);
+      } else {
+        const [en,di] = (d['Personnel']||'0/0').split('/').map(n=>parseInt(n,10));
+        const avail = di - en;
+        if (avail < 3)      stationMarkers['Vienne']?.setIcon(iconRed);
+        else if (avail <= 5) stationMarkers['Vienne']?.setIcon(iconOrange);
+        else                  stationMarkers['Vienne']?.setIcon(iconOrange);
+      }
+    }
+
+    function updateChasseIcon() {
+      const st = (centreData['Chasse-sur-Rhône']?.['VSAV 01']||'').toUpperCase();
+      const engaged = !['DL','RD'].includes(st);
+      stationMarkers['Chasse-sur-Rhône']
+        ?.setIcon(engaged ? iconRed : iconOrange);
+    }
+
+    function updateIcon(name) {
+      if (name==='Vienne')           updateVienneIcon();
+      else if (name==='Chasse-sur-Rhône') updateChasseIcon();
+      else                            updateDefaultIcon(name);
+    }
+
+    // Intervention icons
+    function makeItvIconRhône() {
       const svg = `<svg viewBox="0 0 32 42" width="32" height="42"
                        xmlns="http://www.w3.org/2000/svg">
-                     <path d="
-                       M16,0
-                       C23.7,0 30,6.3 30,14
-                       C30,24.8 16,42 16,42
-                       C16,42 2,24.8 2,14
-                       C2,6.3 8.3,0 16,0 Z"
-                       fill="#003366"/>
+                     <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42
+                              C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z"
+                           fill="#003366"/>
                      <text x="16" y="25" text-anchor="middle"
                            fill="#fff" font-size="18" font-weight="bold">!</text>
                    </svg>`;
       return L.divIcon({
-        html: svg,
-        className: '',
-        iconSize:   [32,42],
-        iconAnchor: [16,42],
-        popupAnchor:[0,-40]
+        html: svg, className:'', iconSize:[32,42],
+        iconAnchor:[16,42], popupAnchor:[0,-40]
       });
     }
-    const interventionMarkers = {};
+    function makeItvIconIsere(id) {
+      const svg = `<svg viewBox="0 0 32 42" width="32" height="42"
+                        xmlns="http://www.w3.org/2000/svg">
+                     <path d="M16,0 C23.7,0 30,6.3 30,14
+                              C30,24.8 16,42 16,42
+                              C16,42 2,24.8 2,14
+                              C2,6.3 8.3,0 16,0 Z"
+                           fill="#ff9800"/>
+                     <text x="16" y="-2" text-anchor="middle"
+                           fill="#000" font-size="10" font-weight="bold">
+                       N°${id}
+                     </text>
+                     <text x="16" y="25" text-anchor="middle"
+                           fill="#fff" font-size="18" font-weight="bold">!</text>
+                   </svg>`;
+      return L.divIcon({
+        html: svg, className:'', iconSize:[32,42],
+        iconAnchor:[16,42], popupAnchor:[0,-40]
+      });
+    }
 
-    // Tab management
+    // 6) Tab management
     function showTab(tab) {
       mapDiv.style.display      =
       casernesDiv.style.display =
@@ -311,7 +340,7 @@
       if (tab==='map') {
         mapDiv.style.display = 'block';
         btnMap.classList.add('active');
-        setTimeout(()=> map.invalidateSize(),200);
+        setTimeout(()=> map.invalidateSize(), 200);
       }
       if (tab==='casernes') {
         casernesDiv.style.display = 'block';
@@ -323,90 +352,119 @@
       }
     }
 
-    // Open a caserne in list
+    // 7) Open helpers
     function openCaserne(name) {
       showTab('casernes');
       const item = casernesDiv.querySelector(`.station-item[data-name="${name}"]`);
-      if (!item) return;
-      item.scrollIntoView({behavior:'smooth',block:'center'});
-      item.click();
+      if (item) { item.scrollIntoView({behavior:'smooth',block:'center'}); item.click(); }
     }
-
-    // Open an intervention in list
     function openIntervention(id) {
       showTab('interventions');
       const item = intervsDiv.querySelector(`.intervention-item[data-id="${id}"]`);
-      if (!item) return;
-      item.scrollIntoView({behavior:'smooth',block:'center'});
-      item.click();
+      if (item) { item.scrollIntoView({behavior:'smooth',block:'center'}); item.click(); }
+    }
+    function openIntervOnMap(id) {
+      showTab('map');
+      const mrk = interventionMarkersIsere[id] || interventionMarkersRhône[id];
+      if (mrk) {
+        map.setView(mrk.getLatLng(), map.getZoom());
+        mrk.openPopup();
+      }
     }
 
-    // Initialize the map and popups
+    // 8) Initialize map & markers
+    let map;
     function initMap() {
       map = L.map('map');
-      L.tileLayer(
-        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        { attribution:'© OpenStreetMap contributors' }
-      ).addTo(map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+        attribution:'© OpenStreetMap contributors'
+      }).addTo(map);
 
       // Caserne markers
       stations.forEach(s=>{
-        const html = `<a href="#" class="popup-caserne" data-name="${s.nom}">
-                        CT ${s.nom}
-                      </a>`;
-        const m = L.marker([s.lat,s.lng],{icon:iconRed})
-          .addTo(map)
-          .bindPopup(html);
+        const link = `<a href="#" class="popup-caserne" data-name="${s.nom}">CT ${s.nom}</a>`;
+        const m = L.marker([s.lat,s.lng], {icon:iconRed})
+          .addTo(map).bindPopup(link);
         stationMarkers[s.nom] = m;
       });
 
-      // Intervention markers
+      // Rhône interventions
       db.ref('Interventions').on('child_added', snap=>{
-        const id  = snap.key;
-        const itv = snap.val()||{};
-        if (interventionMarkers[id]) return;
-        const lat = parseFloat(itv.gps?.lng);
-        const lng = parseFloat(itv.gps?.lat);
+        const id  = snap.key, itv = snap.val()||{};
+        if (interventionMarkersRhône[id]) return;
+        const lat = parseFloat(itv.gps?.lng), lng = parseFloat(itv.gps?.lat);
         if (isNaN(lat)||isNaN(lng)) return;
-
-        const marker = L.marker([lat,lng],{icon:makeItvIcon()})
+        const mrk = L.marker([lat,lng], {icon:makeItvIconRhône()})
           .addTo(map);
-        interventionMarkers[id] = marker;
+        interventionMarkersRhône[id] = mrk;
 
-        marker.on('click', ()=>{
-          const time  = itv.createdAt||'';
+        // map vehicles → this intervention
+        const vehs = Object.values(itv.vehicules||{});
+        vehs.forEach(fn=>{
+          const idx = fn.lastIndexOf(' ');
+          const code = fn.slice(0,idx).trim();
+          const station = fn.slice(idx+1).trim();
+          engagedMap[`${station}_${code}`] = id;
+        });
+
+        mrk.on('click', ()=>{
           const motif = itv.motif||'';
-          const link  = `<a href="#" class="popup-interv" data-id="${id}">
-                           ${time} ${motif}
-                         </a>`;
-          db.ref(`Interventions/${id}/vehicules`)
-            .once('value').then(vsnap=>{
-              const list = Object.values(vsnap.val()||{});
-              let html = link;
-              if (list.length) {
-                html += '<ul>';
-                list.forEach(fullName=>{
-                  const idx     = fullName.lastIndexOf(' ');
-                  const code    = fullName.slice(0,idx);
-                  let station   = fullName.slice(idx+1);
-                  station = station
-                    .split('-')
-                    .map(w=> w.charAt(0).toUpperCase()+w.slice(1).toLowerCase())
-                    .join('-');
-                  const stat  = (stationData[station]?.[code] || centreData[station]?.[code])||'';
-                  const stCls = getStatusClass(stat);
-                  html += `<li>${code} → ${stat}</li>`;
-                });
-                html += '</ul>';
-              } else {
-                html += '<p>Aucun engin répertorié.</p>';
-              }
-              marker.bindPopup(html).openPopup();
-            });
+          const link  = `<a href="#" class="popup-interv" data-id="${id}">${motif}</a>`;
+          db.ref(`Interventions/${id}/vehicules`).once('value').then(vsnap=>{
+            const list = Object.values(vsnap.val()||{});
+            let html = link;
+            if (list.length) {
+              html += '<ul>';
+              list.forEach(li=> html += `<li>${li}</li>`);
+              html += '</ul>';
+            } else html += '<p>Aucun engin répertorié.</p>';
+            mrk.bindPopup(html).openPopup();
+          });
         });
       });
 
-      // Handle popup link clicks
+      // Isère interventions
+      db.ref('Isère/Interventions').on('child_added', snap=>{
+        const id  = snap.key, itv = snap.val()||{};
+        if (interventionMarkersIsere[id]) return;
+        const address = itv.Adresse || '';
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
+          .then(r=>r.json()).then(res=>{
+            if (!res.length) return;
+            const [lat,lon] = [parseFloat(res[0].lat), parseFloat(res[0].lon)];
+            const mrk = L.marker([lat,lon], {icon:makeItvIconIsere(id)})
+              .addTo(map);
+            interventionMarkersIsere[id] = mrk;
+
+            // parse engagedMap from Engins node
+            db.ref(`Isère/Interventions/${id}/Engins`).once('value')
+            .then(esnap=>{
+              const engs = esnap.val()||{};
+              Object.values(engs).forEach(val=>{
+                const [left, status] = val.split(':').map(s=>s.trim());
+                const parts = left.split(' ');
+                const code = parts.slice(0,2).join(' ');
+                const stationName = parts.slice(2).join(' ');
+                engagedMap[`${stationName}_${code}`] = id;
+              });
+
+              mrk.on('click', ()=>{
+                const time  = itv.dhDebutInter || '';
+                const motif = itv.sinistreCourant || '';
+                let html = `<strong>${time} - ${motif}</strong><ul>`;
+                Object.values(engs).forEach(val=>{
+                  const [left, status] = val.split(':').map(s=>s.trim());
+                  html += `<li>${left} ${status||''}</li>`;
+                });
+                html += '</ul>';
+                mrk.bindPopup(html).openPopup();
+              });
+            });
+          })
+          .catch(console.warn);
+      });
+
+      // Popup link handlers
       map.on('popupopen', e=>{
         const el = e.popup.getElement();
         const linkC = el.querySelector('.popup-caserne');
@@ -425,14 +483,13 @@
         }
       });
 
-      // Fit map on all stations
       map.fitBounds(
         L.latLngBounds(stations.map(s=>[s.lat,s.lng])),
         { padding:[50,50] }
       );
     }
 
-    // Build casernes list with custom categories
+    // 9) Build Casernes list
     function initCasernesList() {
       stations.slice().sort((a,b)=>a.nom.localeCompare(b.nom))
         .forEach(s=>{
@@ -449,34 +506,33 @@
           item.addEventListener('click', ()=>{
             if (syn.classList.contains('hidden')) {
               syn.innerHTML = '';
-              let useCats, dataObj;
-              if (s.nom === 'Condrieu') {
-                useCats = categories;
+              let cats, dataObj;
+              if (s.nom==='Condrieu') {
+                cats    = categories;
                 dataObj = stationData['Condrieu']||{};
-              } else if (s.nom === 'Vienne') {
-                useCats = categoriesVienne;
+              } else if (s.nom==='Vienne') {
+                cats    = categoriesVienne;
                 dataObj = centreData['Vienne']||{};
-              } else if (s.nom === 'Chasse-sur-Rhône') {
-                useCats = categoriesChasse;
+              } else if (s.nom==='Chasse-sur-Rhône') {
+                cats    = categoriesChasse;
                 dataObj = centreData['Chasse-sur-Rhône']||{};
               } else {
-                // default: only VSAV 01
-                useCats = { "Secours à Personne":["VSAV 01"] };
+                cats    = { "Secours à Personne":["VSAV 01"] };
                 dataObj = stationData[s.nom]||{};
               }
-              Object.entries(useCats).forEach(([cat,list])=>{
-                const sec   = document.createElement('div');
+              Object.entries(cats).forEach(([cat,list])=>{
+                const sec = document.createElement('div');
                 sec.className = 'category-section';
                 const title = document.createElement('div');
                 title.className = 'category-title';
                 title.textContent = cat;
                 sec.appendChild(title);
-                const row   = document.createElement('div');
+                const row = document.createElement('div');
                 row.className = 'vehicles-row';
                 list.forEach(name=>{
-                  const st   = dataObj[name]||'DM';
-                  const cls  = getStatusClass(st);
-                  const v    = document.createElement('div');
+                  const st = (dataObj[name]||'').trim();
+                  const cls= getStatusClass(st);
+                  const v  = document.createElement('div');
                   v.className   = `vehicle ${cls}`;
                   v.textContent = name;
                   row.appendChild(v);
@@ -492,38 +548,36 @@
         });
     }
 
-    // Build interventions list
+    // 10) Build Rhône Interventions list
     function subscribeInterventionsList() {
       db.ref('Interventions').orderByChild('createdAt')
         .on('child_added', snap=>{
-          const id   = snap.key;
-          const itv  = snap.val()||{};
+          const id   = snap.key, itv = snap.val()||{};
           const time = itv.createdAt||'';
           const motif= itv.motif||'';
           const item = document.createElement('div');
-          item.className    = 'intervention-item';
-          item.textContent  = `${time} ${motif}`;
-          item.dataset.id   = id;
+          item.className   = 'intervention-item';
+          item.textContent = `${time} ${motif}`;
+          item.dataset.id  = id;
           const syn  = document.createElement('div');
-          syn.className     = 'interv-synoptic hidden';
+          syn.className    = 'interv-synoptic hidden';
 
           item.addEventListener('click', ()=>{
             if (syn.classList.contains('hidden')) {
               syn.innerHTML = '';
-              const list = Object.values(itv.vehicules||{});
-              const row  = document.createElement('div');
+              const row = document.createElement('div');
               row.className = 'vehicles-row';
-              list.forEach(fn=>{
-                const idx     = fn.lastIndexOf(' ');
-                const code    = fn.slice(0,idx);
-                let station   = fn.slice(idx+1);
+              Object.values(itv.vehicules||{}).forEach(fn=>{
+                const idx   = fn.lastIndexOf(' ');
+                const code  = fn.slice(0,idx).trim();
+                let station = fn.slice(idx+1).trim();
                 station = station
-                  .split('-')
-                  .map(w=> w.charAt(0).toUpperCase()+w.slice(1).toLowerCase())
-                  .join('-');
-                const stat  = (stationData[station]?.[code] || centreData[station]?.[code])||'';
-                const cls   = getStatusClass(stat);
-                const v     = document.createElement('div');
+                  .split('-').map(w=>
+                    w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()
+                  ).join('-');
+                const stat = stationData[station]?.[code]||'';
+                const cls  = getStatusClass(stat);
+                const v    = document.createElement('div');
                 v.className   = `vehicle ${cls}`;
                 v.textContent = code;
                 row.appendChild(v);
@@ -539,13 +593,24 @@
         });
     }
 
-    // Bottombar events
-    btnMap.addEventListener('click',        ()=> showTab('map'));
-    btnInterventions.addEventListener('click',()=> showTab('interventions'));
-    btnCasernes.addEventListener('click',   ()=> showTab('casernes'));
+    // 11) Badge click in Casernes → carte
+    casernesDiv.addEventListener('click', e => {
+      const el = e.target.closest('.vehicle');
+      if (!el) return;
+      e.stopPropagation();
+      const code = el.textContent.trim();
+      const stationName = el.closest('.station-item').dataset.name;
+      const id = engagedMap[`${stationName}_${code}`];
+      if (id) openIntervOnMap(id);
+    });
 
-    // On load
-    window.addEventListener('DOMContentLoaded', ()=>{
+    // 12) Bottombar events
+    btnMap.addEventListener('click',        () => showTab('map'));
+    btnInterventions.addEventListener('click', () => showTab('interventions'));
+    btnCasernes.addEventListener('click',   () => showTab('casernes'));
+
+    // 13) On load
+    window.addEventListener('DOMContentLoaded', () => {
       initMap();
       initCasernesList();
       subscribeInterventionsList();
