@@ -10,8 +10,6 @@
       height: 100%; margin: 0; padding: 0;
       font-family: Arial, sans-serif;
     }
-
-    /* Topbar */
     #topbar {
       position: fixed; top: 0; left: 0; right: 0;
       height: 50px; background: #b30000;
@@ -20,24 +18,17 @@
       font-size: 1.2rem; font-weight: bold;
       z-index: 1001;
     }
-
-    /* Main content */
     #content {
       position: absolute; top: 50px; bottom: 50px;
       left: 0; right: 0;
     }
-    #map,
-    #casernesList,
-    #interventionsList {
+    #map, #casernesList, #interventionsList {
       width: 100%; height: 100%;
     }
-    #casernesList,
-    #interventionsList {
+    #casernesList, #interventionsList {
       display: none; overflow-y: auto;
       background: #f9f9f9;
     }
-
-    /* Bottombar */
     #bottombar {
       position: fixed; bottom: 0; left: 0; right: 0;
       height: 50px; display: flex;
@@ -50,43 +41,26 @@
     #bottombar button.active {
       background: #ccc;
     }
-
-    /* Station list */
-    .station-item {
-      padding: 10px; border-bottom: 1px solid #ccc;
-      background: #fff; font-weight: bold;
-      cursor: pointer;
-    }
-    .station-item:hover { background: #eee; }
-
-    /* Intervention list */
+    .station-item,
     .intervention-item {
       padding: 10px; border-bottom: 1px solid #ccc;
       background: #fff; font-weight: bold;
       cursor: pointer;
     }
+    .station-item:hover,
     .intervention-item:hover { background: #eee; }
-
-    /* Synoptics */
-    .synoptic,
-    .interv-synoptic {
+    .synoptic, .interv-synoptic {
       padding: 10px 0 20px 0;
       background: #fafafa;
     }
     .hidden { display: none; }
-
-    /* Categories in casernes */
-    .category-section {
-      margin: 20px 15px;
-    }
+    .category-section { margin: 20px 15px; }
     .category-title {
       color: #b30000;
       font-size: 1.1em;
       margin-bottom: 10px;
       font-weight: bold;
     }
-
-    /* Vehicle badges */
     .vehicles-row {
       display: flex; flex-wrap: wrap; gap: 6px;
       padding-left: 10px;
@@ -113,13 +87,10 @@
     .MI { background: #9c27b0; color: #fff; }
     .RV { background: #ff9800; color: #000; }
     .default { background: #d3d3d3; color: #000; }
-
-    /* Remove link styling in popups */
     .leaflet-popup-content a {
       color: inherit;
       text-decoration: none;
     }
-
     @media (max-width:600px) {
       .vehicle { font-size: 0.8em; }
       .category-title { font-size: 1em; }
@@ -167,7 +138,7 @@
     const btnCasernes      = document.getElementById('btnCasernes');
     const btnInterventions = document.getElementById('btnInterventions');
 
-    // 3) Data definitions
+    // 3) Stations & categories
     const stations = [
       { nom:"Ampuis",          lat:45.48889,      lng:4.81179 },
       { nom:"Chasse-sur-Rhône",lat:45.5854485617, lng:4.8043075387 },
@@ -191,7 +162,7 @@
       "Secours à Personne":["VSAV 01","VSAV 02","VSAV 03"],
       "Incendie":["FPT 01","FPTL 01","CCFM 01","CCGC 01","DA 01"],
       "Echelle":["EPS 01"],
-      "Secours Routiers": ["FSR 51"],
+      "Secours Routiers":["FSR 51"],
       "Opérations Diverses":["VL 01","VL 02","VLHR 01","VTUE 01"],
       "Risques Chimiques":["FIRT 01"],
       "Secours nautique":["BMS 01","BPS 01","VSA 01"]
@@ -202,17 +173,17 @@
       "Opérations Diverses":["VL 01","VTUE 01"]
     };
 
-    // Utility: status → CSS class
+    //  statut → classe CSS
     function getStatusClass(s) {
       const st = String(s||'').trim().toUpperCase();
       return ["DL","RE","AL","PA","SL","TH","AH","PC","QH","RD","RI","MD","MI","IN","DM","RV"]
         .includes(st) ? st : 'default';
     }
 
-    // 4) Track statuses & interventions
+    // 4) Data trackers
     const stationData    = {}, stationRefs    = {}, stationMarkers    = {};
     const centreData     = {}, centreRefs     = {};
-    const engagedMap     = {};  // clé "Station_Code" → id intervention
+    const engagedMap     = {};  // clé "Station_CODE" → id intervention
     const interventionMarkersRhône = {}, interventionMarkersIsere = {};
 
     stations.forEach(s=>{
@@ -231,7 +202,7 @@
       }
     });
 
-    // 5) Icons
+    // 5) Station icons
     function makeStationIcon(color) {
       return L.divIcon({
         html: `<svg viewBox="0 0 64 64" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
@@ -245,10 +216,7 @@
                  <rect x="36" y="20" width="6" height="4" fill="#fff" stroke="#333" stroke-width="1"/>
                  <rect x="48" y="28" width="8" height="12" fill="#ccc" stroke="#333" stroke-width="1"/>
                </svg>`,
-        className: '',
-        iconSize:   [32,32],
-        iconAnchor: [16,32],
-        popupAnchor:[0,-32]
+        className:'', iconSize:[32,32], iconAnchor:[16,32], popupAnchor:[0,-32]
       });
     }
     const iconRed    = makeStationIcon('#b30000');
@@ -265,7 +233,6 @@
       else if (down.length>1) ic = iconOrange;
       stationMarkers[name]?.setIcon(ic);
     }
-
     function updateVienneIcon() {
       const d = centreData['Vienne']||{};
       const vs = ['VSAV 01','VSAV 02','VSAV 03']
@@ -277,25 +244,22 @@
         const [en,di] = (d['Personnel']||'0/0').split('/').map(n=>parseInt(n,10));
         const avail = di - en;
         if (avail < 3)      stationMarkers['Vienne']?.setIcon(iconRed);
-        else if (avail <= 5) stationMarkers['Vienne']?.setIcon(iconOrange);
-        else                  stationMarkers['Vienne']?.setIcon(iconOrange);
+        else                 stationMarkers['Vienne']?.setIcon(iconOrange);
       }
     }
-
     function updateChasseIcon() {
       const st = (centreData['Chasse-sur-Rhône']?.['VSAV 01']||'').toUpperCase();
       const engaged = !['DL','RD'].includes(st);
       stationMarkers['Chasse-sur-Rhône']
         ?.setIcon(engaged ? iconRed : iconOrange);
     }
-
     function updateIcon(name) {
-      if (name==='Vienne')           updateVienneIcon();
+      if (name==='Vienne')              updateVienneIcon();
       else if (name==='Chasse-sur-Rhône') updateChasseIcon();
-      else                            updateDefaultIcon(name);
+      else                               updateDefaultIcon(name);
     }
 
-    // Intervention icons
+    // 6 Intervention icons
     function makeItvIconRhône() {
       const svg = `<svg viewBox="0 0 32 42" width="32" height="42"
                        xmlns="http://www.w3.org/2000/svg">
@@ -310,28 +274,48 @@
         iconAnchor:[16,42], popupAnchor:[0,-40]
       });
     }
-    function makeItvIconIsere(id) {
-      const svg = `<svg viewBox="0 0 32 42" width="32" height="42"
-                        xmlns="http://www.w3.org/2000/svg">
-                     <path d="M16,0 C23.7,0 30,6.3 30,14
-                              C30,24.8 16,42 16,42
-                              C16,42 2,24.8 2,14
-                              C2,6.3 8.3,0 16,0 Z"
-                           fill="#ff9800"/>
-                     <text x="16" y="-2" text-anchor="middle"
-                           fill="#000" font-size="10" font-weight="bold">
-                       N°${id}
-                     </text>
-                     <text x="16" y="25" text-anchor="middle"
-                           fill="#fff" font-size="18" font-weight="bold">!</text>
-                   </svg>`;
-      return L.divIcon({
-        html: svg, className:'', iconSize:[32,42],
-        iconAnchor:[16,42], popupAnchor:[0,-40]
-      });
-    }
+    // remplace exactement cette partie
+function makeItvIconIsere(id) {
+  return L.divIcon({
+    html: `
+      <div style="
+        position: relative;
+        display: inline-block;
+        text-align: center;
+        overflow: visible;
+      ">
+        <div style="
+          position: absolute;
+          top: -0.8em;
+          left: 50%;
+          transform: translateX(-50%);
+          font-size: 0.8em;
+          font-weight: bold;
+          color: #000;
+          white-space: nowrap;
+        ">
+          N°${id}
+        </div>
+        <svg viewBox="0 0 32 42" width="32" height="42"
+             xmlns="http://www.w3.org/2000/svg">
+          <path d="M16,0 C23.7,0 30,6.3 30,14
+                   C30,24.8 16,42 16,42
+                   C16,42 2,24.8 2,14
+                   C2,6.3 8.3,0 16,0 Z"
+                fill="#ff9800"/>
+          <text x="16" y="30" text-anchor="middle"
+                fill="#fff" font-size="18" font-weight="bold">!</text>
+        </svg>
+      </div>`,
+    className:   '',
+    iconSize:    [32, 42],
+    iconAnchor:  [16, 42],
+    popupAnchor: [0, -40]
+  });
+}
 
-    // 6) Tab management
+
+    // 7) Tab management
     function showTab(tab) {
       mapDiv.style.display      =
       casernesDiv.style.display =
@@ -354,7 +338,7 @@
       }
     }
 
-    // 7) Open helpers
+    // 8) Helpers for cross-navigation
     function openCaserne(name) {
       showTab('casernes');
       const item = casernesDiv.querySelector(`.station-item[data-name="${name}"]`);
@@ -374,7 +358,7 @@
       }
     }
 
-    // 8) Initialize map & markers
+    // 9) Init map & markers
     let map;
     function initMap() {
       map = L.map('map');
@@ -382,7 +366,6 @@
         attribution:'© OpenStreetMap contributors'
       }).addTo(map);
 
-      // Caserne markers
       stations.forEach(s=>{
         const link = `<a href="#" class="popup-caserne" data-name="${s.nom}">CT ${s.nom}</a>`;
         const m = L.marker([s.lat,s.lng], {icon:iconRed})
@@ -394,94 +377,96 @@
       db.ref('Interventions').on('child_added', snap=>{
         const id  = snap.key, itv = snap.val()||{};
         if (interventionMarkersRhône[id]) return;
-        const lat = parseFloat(itv.gps?.lng), lng = parseFloat(itv.gps?.lat);
+        const lat = parseFloat(itv.gps?.lng),
+              lng = parseFloat(itv.gps?.lat);
         if (isNaN(lat)||isNaN(lng)) return;
-        const mrk = L.marker([lat,lng], {icon:makeItvIconRhône()})
-          .addTo(map);
+        const mrk = L.marker([lat,lng], {icon:makeItvIconRhône()}).addTo(map);
         interventionMarkersRhône[id] = mrk;
 
-        // map vehicles → this intervention
-        const vehs = Object.values(itv.vehicules||{});
-        vehs.forEach(fn=>{
-          const idx = fn.lastIndexOf(' ');
-          const code = fn.slice(0,idx).trim();
-          const station = fn.slice(idx+1).trim();
+        // engager map
+        Object.values(itv.vehicules||{}).forEach(fn=>{
+          const parts = fn.trim().split(' ');
+          const code   = parts.slice(0,parts.length-1).join(' ');
+          const station= parts[parts.length-1];
           engagedMap[`${station}_${code}`] = id;
         });
 
-        mrk.on('click', ()=>{
-          const motif = itv.motif||'';
-          const link  = `<a href="#" class="popup-interv" data-id="${id}">${motif}</a>`;
-          db.ref(`Interventions/${id}/vehicules`).once('value').then(vsnap=>{
-            const list = Object.values(vsnap.val()||{});
-            let html = link;
-            if (list.length) {
-              html += '<ul>';
-              list.forEach(li=> html += `<li>${li}</li>`);
-              html += '</ul>';
-            } else html += '<p>Aucun engin répertorié.</p>';
-            mrk.bindPopup(html).openPopup();
-          });
-        });
+// 1) on prépare le HTML du popup (avec <a class="popup-interv" …>)
+const popupHtml =
+  `<a href="#" class="popup-interv" data-id="${id}">
+     <strong>${itv.dhDebutInter||''} - ${itv.sinistreCourant||''}</strong>
+   </a>
+   <p>${addr}</p>`;
+mrk.bindPopup(popupHtml);
+
+// 2) à chaque clic on rouvre simplement la popup
+mrk.on('click', () => mrk.openPopup());
+
+
       });
 
       // Isère interventions
       db.ref('Isère/Interventions').on('child_added', snap=>{
         const id  = snap.key, itv = snap.val()||{};
         if (interventionMarkersIsere[id]) return;
-        const address = itv.Adresse || '';
-        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
+        const addr = itv.Adresse||'';
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
           .then(r=>r.json()).then(res=>{
             if (!res.length) return;
-            const [lat,lon] = [parseFloat(res[0].lat), parseFloat(res[0].lon)];
-            const mrk = L.marker([lat,lon], {icon:makeItvIconIsere(id)})
-              .addTo(map);
+            const lat = parseFloat(res[0].lat),
+                  lon = parseFloat(res[0].lon);
+            const mrk = L.marker([lat,lon], {icon:makeItvIconIsere(id)}).addTo(map);
             interventionMarkersIsere[id] = mrk;
 
-            // parse engagedMap from Engins node
-            db.ref(`Isère/Interventions/${id}/Engins`).once('value')
-            .then(esnap=>{
+            // build engagedMap
+            db.ref(`Isère/Interventions/${id}/Engins`)
+              .once('value').then(esnap=>{
               const engs = esnap.val()||{};
-              Object.values(engs).forEach(val=>{
-                const [left, status] = val.split(':').map(s=>s.trim());
-                const parts = left.split(' ');
-                const code = parts.slice(0,2).join(' ');
-                const stationName = parts.slice(2).join(' ');
-                engagedMap[`${stationName}_${code}`] = id;
-              });
+              Object.values(engs).forEach(val => {
+  // val ex: "VSAV 01 VIENNE SL" ou "VIT 52 CH VIENNE"
+  const parts  = val.trim().split(' ');
+  const status = parts.pop() || 'DL';          // toujours le dernier mot
+  const centre = parts.pop();                  // avant-dernier
+  const code   = parts.join(' ');              // tout ce qui reste
+  if (!groups[centre]) groups[centre] = [];
+  groups[centre].push({ code, status });
+});
 
-              mrk.on('click', ()=>{
-                const time  = itv.dhDebutInter || '';
-                const motif = itv.sinistreCourant || '';
-                let html = `<strong>${time} - ${motif}</strong><ul>`;
-                Object.values(engs).forEach(val=>{
-                  const [left, status] = val.split(':').map(s=>s.trim());
-                  html += `<li>${left} ${status||''}</li>`;
-                });
-                html += '</ul>';
-                mrk.bindPopup(html).openPopup();
-              });
             });
-          })
-          .catch(console.warn);
+
+        // 1) bindPopup une seule fois avec le contenu dynamique
+const popupContent = 
+  `<a href="#" class="popup-interv" data-id="${id}">
+      <strong>${itv.dhDebutInter||''} - ${itv.sinistreCourant||''}</strong>
+   </a>
+   <p>${addr}</p>`;
+mrk.bindPopup(popupContent);
+
+// 2) à chaque clic on rouvre
+mrk.on('click', () => {
+  mrk.openPopup();
+});
+
+
+          }).catch(console.warn);
       });
 
-      // Popup link handlers
+      // popup cross-links
       map.on('popupopen', e=>{
         const el = e.popup.getElement();
         const linkC = el.querySelector('.popup-caserne');
         if (linkC) {
-          linkC.addEventListener('click', ev=>{
+          linkC.onclick = ev=>{
             ev.preventDefault();
             openCaserne(linkC.dataset.name);
-          });
+          };
         }
         const linkI = el.querySelector('.popup-interv');
         if (linkI) {
-          linkI.addEventListener('click', ev=>{
+          linkI.onclick = ev=>{
             ev.preventDefault();
             openIntervention(linkI.dataset.id);
-          });
+          };
         }
       });
 
@@ -491,7 +476,7 @@
       );
     }
 
-    // 9) Build Casernes list
+    // 10) Casernes list
     function initCasernesList() {
       stations.slice().sort((a,b)=>a.nom.localeCompare(b.nom))
         .forEach(s=>{
@@ -505,7 +490,7 @@
           syn.className = 'synoptic hidden';
           casernesDiv.appendChild(syn);
 
-          item.addEventListener('click', ()=>{
+          item.onclick = ()=> {
             if (syn.classList.contains('hidden')) {
               syn.innerHTML = '';
               let cats, dataObj;
@@ -523,18 +508,18 @@
                 dataObj = stationData[s.nom]||{};
               }
               Object.entries(cats).forEach(([cat,list])=>{
-                const sec = document.createElement('div');
+                const sec   = document.createElement('div');
                 sec.className = 'category-section';
                 const title = document.createElement('div');
                 title.className = 'category-title';
                 title.textContent = cat;
                 sec.appendChild(title);
-                const row = document.createElement('div');
+                const row   = document.createElement('div');
                 row.className = 'vehicles-row';
                 list.forEach(name=>{
-                  const st = (dataObj[name]||'').trim();
-                  const cls= getStatusClass(st);
-                  const v  = document.createElement('div');
+                  const st  = (dataObj[name]||'').trim();
+                  const cls = getStatusClass(st);
+                  const v   = document.createElement('div');
                   v.className   = `vehicle ${cls}`;
                   v.textContent = name;
                   row.appendChild(v);
@@ -546,44 +531,57 @@
             } else {
               syn.classList.add('hidden');
             }
-          });
+          };
         });
     }
 
-    // 10) Build Rhône Interventions list
+    // 11) Construire la liste des interventions (Rhône + Isère)
     function subscribeInterventionsList() {
-      db.ref('Interventions').orderByChild('createdAt')
-        .on('child_added', snap=>{
-          const id   = snap.key, itv = snap.val()||{};
-          const time = itv.createdAt||'';
-          const motif= itv.motif||'';
-          const item = document.createElement('div');
-          item.className   = 'intervention-item';
-          item.textContent = `${time} ${motif}`;
-          item.dataset.id  = id;
-          const syn  = document.createElement('div');
-          syn.className    = 'interv-synoptic hidden';
+      intervsDiv.innerHTML = ''; // vider à chaque initialisation
 
-          item.addEventListener('click', ()=>{
+      // 11a) Rhône
+      db.ref('Interventions').orderByChild('createdAt')
+        .on('child_added', snap => {
+          const id   = snap.key;
+          const itv  = snap.val() || {};
+          const time = itv.createdAt || '';
+          const motif= itv.motif    || '';
+
+          // Élément résumé
+          const item = document.createElement('div');
+          item.className  = 'intervention-item';
+          item.dataset.id = id;
+          item.innerHTML  = `<strong>${time} - ${motif} (${id})</strong>`;
+
+          // Détails cachés
+          const syn = document.createElement('div');
+          syn.className = 'interv-synoptic hidden';
+
+          item.addEventListener('click', () => {
             if (syn.classList.contains('hidden')) {
+              // Pas d'adresse Rhône, on affiche juste les engins
               syn.innerHTML = '';
+              syn.appendChild(document.createElement('p')).textContent = 'Engins engagés :';
               const row = document.createElement('div');
               row.className = 'vehicles-row';
-              Object.values(itv.vehicules||{}).forEach(fn=>{
-                const idx   = fn.lastIndexOf(' ');
-                const code  = fn.slice(0,idx).trim();
-                let station = fn.slice(idx+1).trim();
-                station = station
-                  .split('-').map(w=>
-                    w.charAt(0).toUpperCase()+w.slice(1).toLowerCase()
-                  ).join('-');
-                const stat = stationData[station]?.[code]||'';
-                const cls  = getStatusClass(stat);
-                const v    = document.createElement('div');
-                v.className   = `vehicle ${cls}`;
-                v.textContent = code;
+
+              const vehs = Object.values(itv.vehicules || {});
+              // grouper par centre
+              const grouped = {};
+              vehs.forEach(fn => {
+                const parts   = fn.trim().split(' ');
+                const station = parts.pop();
+                const code    = parts.join(' ');
+                if (!grouped[station]) grouped[station] = [];
+                grouped[station].push(code);
+              });
+              Object.entries(grouped).forEach(([station, codes]) => {
+                const v = document.createElement('div');
+                v.className   = 'vehicle default';
+                v.textContent = `${station} : ${codes.join(' ')}`;
                 row.appendChild(v);
               });
+
               syn.appendChild(row);
               syn.classList.remove('hidden');
             } else {
@@ -591,27 +589,104 @@
             }
           });
 
-          intervsDiv.prepend(item, syn);
+          intervsDiv.append(item, syn);
         });
-    }
 
-    // 11) Badge click in Casernes → carte
+  // … juste avant, tu as déjà vidé intervsDiv et géré le Rhône
+
+  // 11b) Isère
+  db.ref('Isère/Interventions').orderByChild('dhDebutInter')
+    .on('child_added', snap => {
+      const id      = snap.key;
+      const itv     = snap.val() || {};
+      const time    = itv.dhDebutInter    || '';
+      const motif   = itv.sinistreCourant || '';
+      const address = itv.Adresse        || '';
+      const engs    = itv.Engins         || {};
+
+      // résumé cliquable
+      const item = document.createElement('div');
+      item.className  = 'intervention-item';
+      item.dataset.id = id;
+      item.innerHTML  = `<strong>${time} - ${motif}</strong>`;
+
+      // détails cachés
+      const syn = document.createElement('div');
+      syn.className = 'interv-synoptic hidden';
+
+      item.addEventListener('click', () => {
+        // injecte le contenu **une** fois
+        if (!syn._init) {
+          syn.innerHTML = '';
+          // adresse
+          const pAddr = document.createElement('p');
+          pAddr.textContent = address;
+          syn.appendChild(pAddr);
+
+          // titre engins
+          const pTitle = document.createElement('p');
+          pTitle.textContent = 'Engins engagés :';
+          syn.appendChild(pTitle);
+
+          // grouper par centre
+          const groups = {};
+          Object.values(engs).forEach(val => {
+            // val ex: "VSAV 01 VIENNE SL"
+            const parts = val.trim().split(' ');
+            const status  = parts.pop() || 'DL';       // dernier élément
+            const centre  = parts.pop();               // avant-dernier
+            const code    = parts.join(' ');           // le reste
+            if (!groups[centre]) groups[centre] = [];
+            groups[centre].push({ code, status });
+          });
+
+          // affichage
+          Object.entries(groups).forEach(([centre, vehs]) => {
+            // 1 ligne titre centre (sans statut)
+            const h = document.createElement('div');
+            h.textContent    = centre + ' :';
+            h.style.margin   = '8px 0 4px';
+            h.style.fontWeight = 'bold';
+            syn.appendChild(h);
+
+            // 1 ligne de badges
+            const row = document.createElement('div');
+            row.className = 'vehicles-row';
+            vehs.forEach(({ code, status }) => {
+              const v = document.createElement('div');
+              v.className   = 'vehicle ' + getStatusClass(status);
+              v.textContent = code;
+              row.appendChild(v);
+            });
+            syn.appendChild(row);
+          });
+
+          syn._init = true;
+        }
+        syn.classList.toggle('hidden');
+      });
+
+      intervsDiv.append(item, syn);
+    });
+  }
+
+    // 12) Clic sur badge d'engin dans "Caserne" → bascule vers la carte
     casernesDiv.addEventListener('click', e => {
       const el = e.target.closest('.vehicle');
       if (!el) return;
       e.stopPropagation();
-      const code = el.textContent.trim();
-      const stationName = el.closest('.station-item').dataset.name;
+      const code = el.textContent.split(' : ').pop().trim();
+      const stationName = el.textContent.split(' : ')[0].trim();
       const id = engagedMap[`${stationName}_${code}`];
       if (id) openIntervOnMap(id);
     });
 
-    // 12) Bottombar events
+    // 13) Bottombar & navigation croisée
     btnMap.addEventListener('click',        () => showTab('map'));
     btnInterventions.addEventListener('click', () => showTab('interventions'));
     btnCasernes.addEventListener('click',   () => showTab('casernes'));
 
-    // 13) On load
+    // 14) Au chargement de la page
     window.addEventListener('DOMContentLoaded', () => {
       initMap();
       initCasernesList();
@@ -621,4 +696,4 @@
   </script>
 </body>
 </html>
-```
+ ```
