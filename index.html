@@ -169,7 +169,7 @@
       "Incendie":["FPT 01","FPTL 51","CCFM 01","CCGC 01","DA 01"],
       "Echelle":["EPS 01"],
       "Secours Routiers":["FSR 51"],
-      "Opérations Diverses":["VL 01","VL 02","VLHR 01","VTUE 01"],
+      "Opérations Diverses":["VL 01","VL 02","VLTTC 01","VTUE 01"],
       "Risques Chimiques":["FIRT 01"],
       "Secours Nautiques":["BMS 01","BPS 01","VSA 01"]
     };
@@ -191,6 +191,19 @@
     const centreData     = {}, centreRefs     = {};
     const engagedMap     = {};
     const interventionMarkersRhône = {}, interventionMarkersIsere = {};
+    
+// helper : remplir engagedMap depuis Isère/Interventions/[id]/Engins Engagés
+function fillEngagedMapFromIsere(id, engOrdered) {
+  // engOrdered attendu: objet avec clés "0","1",... -> { [centre]: { [engin]: { Statut: '...'} } }
+  Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
+    const centresObj = engOrdered[orderKey] || {};
+    Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
+      Object.keys(enginsObj || {}).forEach(enginName => {
+        engagedMap[`${centreName}_${enginName}`] = id;
+      });
+    });
+  });
+}
 
     stations.forEach(s=>{
       if (s.nom==="Vienne"||s.nom==="Chasse-sur-Rhône") {
@@ -278,17 +291,39 @@
     }
 
     // 6) Intervention icons
-    function makeItvIconRhône() {
-      const svg = `<svg viewBox="0 0 32 42" width="32" height="42"
-                       xmlns="http://www.w3.org/2000/svg">
-                     <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42
-                              C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z"
-                           fill="#003366"/>
-                     <text x="16" y="25" text-anchor="middle"
-                           fill="#fff" font-size="22" font-weight="bold">!</text>
-                   </svg>`;
+     function makeItvIconRhône(id) {
       return L.divIcon({
-        html: svg, className:'', iconSize:[32,42],
+        html: `
+          <div style="
+            position: relative;
+            display: inline-block;
+            text-align: center;
+            overflow: visible;
+          ">
+            <div style="
+              position: absolute;
+              top: -0.8em;
+              left: 50%;
+              transform: translateX(-50%);
+              font-size: 0.8em;
+              font-weight: bold;
+              color: #000;
+              white-space: nowrap;
+            ">
+              N°${id}
+            </div>
+            <svg viewBox="0 0 32 42" width="32" height="42"
+                 xmlns="http://www.w3.org/2000/svg">
+              <path d="M16,0 C23.7,0 30,6.3 30,14
+                       C30,24.8 16,42 16,42
+                       C16,42 2,24.8 2,14
+                       C2,6.3 8.3,0 16,0 Z"
+                    fill="#003366"/>
+              <text x="16" y="30" text-anchor="middle"
+                    fill="#fff" font-size="22" font-weight="bold">!</text>
+            </svg>
+          </div>`,
+        className:'', iconSize:[32,42],
         iconAnchor:[16,42], popupAnchor:[0,-40]
       });
     }
@@ -321,7 +356,7 @@
                        C2,6.3 8.3,0 16,0 Z"
                     fill="#ff9800"/>
               <text x="16" y="30" text-anchor="middle"
-                    fill="#fff" font-size="18" font-weight="bold">!</text>
+                    fill="#fff" font-size="22" font-weight="bold">!</text>
             </svg>
           </div>`,
         className:'', iconSize:[32,42],
@@ -472,86 +507,69 @@ let html = `
       });
 
       // Isère interventions (inchangé)
-      db.ref('Isère/Interventions').on('child_added', snap=>{
-        const id  = snap.key, itv = snap.val()||{};
-        if (interventionMarkersIsere[id]) return;
-        const addr = itv.Adresse||'';
-        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
-          .then(r=>r.json()).then(res=>{
-            if (!res.length) return;
-            const lat = parseFloat(res[0].lat),
-                  lon = parseFloat(res[0].lon);
-            const mrk = L.marker([lat,lon], {icon:makeItvIconIsere(id)})
-                         .addTo(map);
-            interventionMarkersIsere[id] = mrk;
-mrk.bindPopup('Chargement…');
-mrk.on('click', () => mrk.openPopup());
+// Isère interventions — lecture de "Engins Engagés" et popup détaillé
+db.ref('Isère/Interventions').on('child_added', snap => {
+  const id = snap.key;
+  const itv = snap.val() || {};
+  if (interventionMarkersIsere[id]) return;
 
-            // engagé map (non affiché ici)
-           db.ref(`Isère/Interventions/${id}/Engins Engagés`)
-  .once('value').then(esnap=>{
-    const engs = esnap.val()||{};
-    Object.values(engs).forEach(obj=>{
-      const centre = obj[0]||'';
-      const statut = obj.Statut||'';
-      Object.entries(obj).forEach(([key,val])=>{
-        if (key==='0' || key==='Statut') return;
-        const code = key;
-        engagedMap[`${centre}_${code}`] = id;
-      });
-    });
-  });
+  const addr = itv['Adresse'] || '';
+  const dh = itv['dhDebutInter'] || '';
+  const motif = itv['sinistreCourant'] || '';
 
+  // géocodage de l'adresse (Nominatim)
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
+    .then(r => r.json())
+    .then(res => {
+      if (!res.length) return;
+      const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
+      const mrk = L.marker([lat, lon], { icon: makeItvIconIsere(id) }).addTo(map);
+      interventionMarkersIsere[id] = mrk;
 
-mrk.on('popupopen', () => {
-  // 1) Titre : heure + sinistreCourant
-  // nouveau : lien cliquable qui déclenchera openIntervention(id)
-let html = `
-  <a href="#" class="popup-interv" data-id="${id}">
-    <strong>${itv.dhDebutInter || ''} - ${itv.sinistreCourant || ''}</strong>
-  </a>
-`;
+      // on récupère la structure "Engins Engagés" (nouveau chemin)
+      db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap => {
+        const engOrdered = esnap.val() || {}; // clefs "0","1",...
+        // groups: centre -> array of { code, statut }
+        const groups = {};
 
-  // 2) Adresse
-  html += `<p>${addr}</p>`;
+        // itération par ordre d'alerte
+        Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
+          const centresObj = engOrdered[orderKey] || {};
+          // centresObj: { [nomCentre]: { [nomEngin]: { Statut: '...' }, ... }, ... }
+          Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
+            if (!groups[centreName]) groups[centreName] = [];
+            Object.entries(enginsObj).forEach(([enginName, engData]) => {
+              const statut = (engData && engData.Statut) ? String(engData.Statut).trim() : '';
+              groups[centreName].push({ code: enginName, statut });
+              // remplir engagedMap pour recherche via badges (clé centre_engin)
+              engagedMap[`${centreName}_${enginName}`] = id;
+            });
+          });
+        });
 
-  // 3) Grouper les engins par centre
-  const groups = {};
-  const engs   = itv['Engins Engagés'] || {};
-  Object.values(engs).forEach(obj => {
-    const centre = obj[0] || '';
-    if (!groups[centre]) groups[centre] = [];
-    Object.entries(obj).forEach(([key, val]) => {
-      if (key === '0' || key === 'Statut') return;
-      groups[centre].push({
-        code:   key,
-        status: obj.Statut || ''
-      });
-    });
-  });
+        // binder un popup vierge puis le remplir dynamiquement à chaque ouverture
+        mrk.bindPopup('Chargement…');
+        mrk.on('popupopen', () => {
+          let html = `<strong>${dh} - ${motif}</strong>`;
+          html += `<p>${addr}</p>`;
+          // afficher centre : engins1 engins2 ...
+          Object.entries(groups).forEach(([centre, engs]) => {
+            const codes = engs.map(e => e.code).join(' ');
+            html += `
+              <div class="interv-detail">
+                <div><strong>${centre} :</strong></div>
+                <div>${codes}</div>
+              </div>
+            `;
+          });
+          mrk.getPopup().setContent(html);
+        });
 
-  // 4) Construire la liste à affi­cher
-  html += `<div style="margin-top:8px;">`;
-  Object.entries(groups).forEach(([centre, vehs]) => {
-    html += `
-      <div class="interv-detail">
-        <div style="font-weight:bold;">${centre} :</div>
-        <div class="vehicles-row">
-          ${vehs.map(({code, status}) =>
-            `<div class="vehicle ${getStatusClass(status)}">${code} ${status}</div>`
-          ).join('')}
-        </div>
-      </div>`;
-  });
-  html += `</div>`;
-
-  mrk.getPopup().setContent(html);
+        // garantir qu'on peut cliquer plusieurs fois pour rouvrir
+        mrk.on('click', () => mrk.openPopup());
+      }).catch(console.warn);
+    }).catch(console.warn);
 });
-
-// on conserve le click pour rouvrir le popup
-mrk.on('click', () => mrk.openPopup());
-          }).catch(console.warn);
-      });
 
       // cross-links dans tous les popups
       map.on('popupopen', e=>{
@@ -638,61 +656,77 @@ mrk.on('click', () => mrk.openPopup());
       intervsDiv.innerHTML = '';
 
       // 11a) Rhône : détail caserne / engins côte à côte
-      db.ref('Interventions').orderByChild('createdAt')
+     // 11b) Isère — nouvelle lecture de "Engins Engagés"
+db.ref('Isère/Interventions').orderByChild('dhDebutInter')
   .on('child_added', snap => {
-          const id   = snap.key;
-          const itv  = snap.val() || {};
-          const time = itv.createdAt    || '';
-          const motif= itv.motif        || '';
+    const id = snap.key;
+    const itv = snap.val() || {};
+    const time = itv.dhDebutInter || '';
+    const motif = itv.sinistreCourant || '';
+    const address = itv.Adresse || '';
 
-          const item = document.createElement('div');
-          item.className  = 'intervention-item';
-          item.dataset.id = id;
-          item.innerHTML  = `<strong>${time} - ${motif} (${id})</strong>`;
+    const item = document.createElement('div');
+    item.className = 'intervention-item';
+    item.dataset.id = id;
+    item.innerHTML = `<strong>${time} - ${motif}</strong>`;
 
-          const syn = document.createElement('div');
-          syn.className = 'interv-synoptic hidden';
+    const syn = document.createElement('div');
+    syn.className = 'interv-synoptic hidden';
 
-          item.addEventListener('click', () => {
-            if (syn.classList.contains('hidden')) {
-              syn.innerHTML = '';
-              // grouper par centre
-              const grouped = {};
-    Object.values(itv.vehicules||{}).forEach(obj=>{
-      const centre = obj[0]||'';
-      if (!grouped[centre]) grouped[centre] = [];
-      Object.entries(obj).forEach(([key,val])=>{
-        if (key==='0' || key==='Statut') return;
-        grouped[centre].push(key);
-      });
-    });
-              // construire détail côte à côte
-              Object.entries(grouped).forEach(([station,codes]) => {
-                const detail = document.createElement('div');
-                detail.className = 'interv-detail';
-                const left = document.createElement('div');
-                left.textContent = station;
-                left.style.fontWeight = 'bold';
-                const right = document.createElement('div');
-                right.className = 'vehicles-row';
-                codes.forEach(code=>{
-                  const v = document.createElement('div');
-                  v.className   = 'vehicle default';
-                  v.textContent = code;
-                  right.appendChild(v);
-                });
-                detail.appendChild(left);
-                detail.appendChild(right);
-                syn.appendChild(detail);
+    item.addEventListener('click', () => {
+      if (!syn._init) {
+        syn.innerHTML = '';
+        // adresse
+        const pAddr = document.createElement('p');
+        pAddr.textContent = address;
+        syn.appendChild(pAddr);
+
+        // read "Engins Engagés"
+        db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap => {
+          const engOrdered = esnap.val() || {};
+          const groups = {};
+
+          Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
+            const centresObj = engOrdered[orderKey] || {};
+            Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
+              if (!groups[centreName]) groups[centreName] = [];
+              Object.entries(enginsObj).forEach(([enginName, engData]) => {
+                const statut = (engData && engData.Statut) ? String(engData.Statut).trim() : '';
+                groups[centreName].push({ code: enginName, statut });
+                // remplir engagedMap (utile pour clic sur badge)
+                engagedMap[`${centreName}_${enginName}`] = id;
               });
-              syn.classList.remove('hidden');
-            } else {
-              syn.classList.add('hidden');
-            }
+            });
           });
 
-          intervsDiv.append(item, syn);
+          // affichage côte-à-côte centre | engins (codes séparés par espace)
+          Object.entries(groups).forEach(([centre, engs]) => {
+            const detail = document.createElement('div');
+            detail.className = 'interv-detail';
+            const left = document.createElement('div');
+            left.textContent = centre;
+            left.style.fontWeight = 'bold';
+            const right = document.createElement('div');
+            right.textContent = engs.map(e => e.code).join(' ');
+            detail.appendChild(left);
+            detail.appendChild(right);
+            syn.appendChild(detail);
+          });
+
+          syn._init = true;
+          syn.classList.remove('hidden');
+        }).catch(err => {
+          // en cas d'erreur on affiche simplement l'adresse
+          syn.classList.remove('hidden');
+          console.warn(err);
         });
+      } else {
+        syn.classList.toggle('hidden');
+      }
+    });
+
+    intervsDiv.append(item, syn);
+  });
 
       // 11b) Isère (inchangé)
       // ─── 4) Liste latérale – subscribe Isère ──────────────────────────────────────
