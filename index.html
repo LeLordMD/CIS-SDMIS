@@ -93,6 +93,8 @@
     .IN { background: #000;    color: #fff; }
     .DM { background: #d3d3d3; color: #000; }
     .RV { background: #ff9800; color: #000; }
+    .TR { background: #363636; color: #fff; }
+    .ID { background: #ffeb3b; color: #000; }
     .leaflet-popup-content a {
       color: inherit;
       text-decoration: none;
@@ -158,10 +160,11 @@
       "Echelle":["EPS24 01"],
       "Opérations Diverses":["VFI 01","VFIHR 01","VTUTP 01"],
       "Commandement":["VLCDG 01"],
+      "Secours Nautiques":["BMS 01", "R2BLS 01","LDEPOL 01"],
       "Remorque Cellule Lot":[
-        "BMS 01","LBACHE 01","LBALIS 01","LCITS5 01",
-        "LDEPOL 01","LDNROY 01","LECLE 01","LELEC 01",
-        "LGAZ 01","LTRON 01","MPR 01","R2BLS 01"
+        "LBACHE 01","LBALIS 01","LCITS5 01",
+        "LDNROY 01","LECLE 01","LELEC 01",
+        "LGAZ 01","LTRON 01","MPR 01"
       ]
     };
     const categoriesVienne = {
@@ -183,7 +186,7 @@
       const st = String(s||'').trim().toUpperCase();
       return ["DL","RE","AL","PA","SL","TH","AH",
               "PC","QH","RD","RI","MD","MI","IN",
-              "DM","RV"].includes(st) ? st : 'default';
+              "DM","RV", "TR", "ID"].includes(st) ? st : 'default';
     }
 
     // 4) Data trackers
@@ -213,11 +216,16 @@ function fillEngagedMapFromIsere(id, engOrdered) {
           updateIcon(s.nom);
         });
       } else {
-        stationRefs[s.nom] = db.ref(`CIS/${s.nom}/Engins`);
-        stationRefs[s.nom].on('value', snap=>{
-          stationData[s.nom] = snap.val()||{};
-          updateIcon(s.nom);
-        });
+        // dans la boucle stations.forEach(s => { ... })
+const path = (s.nom === 'Sainte-Colombe') ? 'CIS/Ste-Colombe/Engins' : `CIS/${s.nom}/Engins`;
+stationRefs[s.nom] = db.ref(path);
+stationRefs[s.nom].on('value', snap => {
+  stationData[s.nom] = snap.val() || {};
+  updateIcon(s.nom);
+  refreshCaserneSynoptic(s.nom); 
+  // rafraîchir la vue si ouverte
+});
+
       }
     });
 
@@ -291,39 +299,17 @@ function fillEngagedMapFromIsere(id, engOrdered) {
     }
 
     // 6) Intervention icons
-     function makeItvIconRhône(id) {
+    function makeItvIconRhône() {
+      const svg = `<svg viewBox="0 0 32 42" width="32" height="42"
+                       xmlns="http://www.w3.org/2000/svg">
+                     <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42
+                              C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z"
+                           fill="#003366"/>
+                     <text x="16" y="25" text-anchor="middle"
+                           fill="#fff" font-size="22" font-weight="bold">!</text>
+                   </svg>`;
       return L.divIcon({
-        html: `
-          <div style="
-            position: relative;
-            display: inline-block;
-            text-align: center;
-            overflow: visible;
-          ">
-            <div style="
-              position: absolute;
-              top: -0.8em;
-              left: 50%;
-              transform: translateX(-50%);
-              font-size: 0.8em;
-              font-weight: bold;
-              color: #000;
-              white-space: nowrap;
-            ">
-              N°${itvNum}
-            </div>
-            <svg viewBox="0 0 32 42" width="32" height="42"
-                 xmlns="http://www.w3.org/2000/svg">
-              <path d="M16,0 C23.7,0 30,6.3 30,14
-                       C30,24.8 16,42 16,42
-                       C16,42 2,24.8 2,14
-                       C2,6.3 8.3,0 16,0 Z"
-                    fill="#003366"/>
-              <text x="16" y="25" text-anchor="middle"
-                    fill="#fff" font-size="22" font-weight="bold">!</text>
-            </svg>
-          </div>`,
-        className:'', iconSize:[32,42],
+        html: svg, className:'', iconSize:[32,42],
         iconAnchor:[16,42], popupAnchor:[0,-40]
       });
     }
@@ -407,307 +393,381 @@ function fillEngagedMapFromIsere(id, engOrdered) {
       }
     }
 
-    // 9) Init map & markers
-    let map;
-    function initMap() {
-      map = L.map('map');
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-        attribution:'© OpenStreetMap contributors'
-      }).addTo(map);
+   // 9) Init map & markers
+let map;
+function initMap() {
+  map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
 
-      // casernes
-      stations.forEach(s=>{
-        const link = `<a href="#" class="popup-caserne" data-name="${s.nom}">
-                        CT ${s.nom}
-                      </a>`;
-        const m = L.marker([s.lat,s.lng], {icon:iconRed})
-                    .addTo(map)
-                    .bindPopup(link);
-        stationMarkers[s.nom] = m;
-      });
-
-      // Rhône interventions (popups dynamiques et réutilisables)
-      db.ref('Interventions').on('child_added', snap=>{
-  const id  = snap.key, itv = snap.val()||{};
-  // gps est désormais un tableau [lat, lng]
-  const [lat, lng] = itv.gps||[];
-  if (!lat||!lng) return;
-        const mrk = L.marker([lat,lng], {icon:makeItvIconRhône()})
-                     .addTo(map);
-        interventionMarkersRhône[id] = mrk;
-
-        // station→intervention
-        Object.values(itv.vehicules||{}).forEach(obj=>{
-    // obj[0] = nom du centre
-    const centre = obj[0]||'';
-    const statut = obj.Statut||'';
-    // pour chaque clé autre que '0' et 'Statut'
-    Object.entries(obj).forEach(([key,val])=>{
-      if (key==='0' || key==='Statut') return;
-      const code = key; // ex 'VSAV 01'
-      engagedMap[`${centre}_${code}`] = id;
-    });
+  // casernes
+  stations.forEach(s=>{
+    const link = `<a href="#" class="popup-caserne" data-name="${s.nom}">CT ${s.nom}</a>`;
+    const m = L.marker([s.lat,s.lng], {icon:iconRed})
+                .addTo(map)
+                .bindPopup(link);
+    stationMarkers[s.nom] = m;
   });
 
-        // on bind un popup vierge une fois
-        mrk.bindPopup('Chargement…');
+  // Rhône interventions (popups dynamiques et réutilisables)
+  const refRh = db.ref('Interventions');
+  refRh.off('child_added');
+  refRh.on('child_added', snap=>{
+    const id  = snap.key, itv = snap.val()||{};
+    // gps peut être [lat, lng] ou objet; tenter robustement
+    let lat = NaN, lng = NaN;
+    if (Array.isArray(itv.gps) && itv.gps.length>=2) { lat = parseFloat(itv.gps[0]); lng = parseFloat(itv.gps[1]); }
+    else if (itv.gps && typeof itv.gps === 'object') { lat = parseFloat(itv.gps.lat ?? itv.gps[0]); lng = parseFloat(itv.gps.lng ?? itv.gps[1]); }
+    if (isNaN(lat) || isNaN(lng)) return;
 
-        // à chaque ouverture de popup, on met à jour le contenu
-       // ─── Popup dynamique Rhône ────────────────────────────────────────────────
-mrk.on('popupopen', () => {
-  // 1) En-tête : heure + motif
-  // nouveau : lien cliquable qui déclenchera openIntervention(id)
-let html = `
-  <a href="#" class="popup-interv" data-id="${id}">
-    <strong>${itv.createdAt || ''} - ${itv.motif || ''}</strong>
-  </a>
-`;
+    if (interventionMarkersRhône[id]) return;
+    const mrk = L.marker([lat,lng], {icon:makeItvIconRhône()}).addTo(map);
+    interventionMarkersRhône[id] = mrk;
 
-  // 2) Adresse (si disponible)
-  if (itv.adresse) {
-    html += `<p>${itv.adresse}</p>`;
-  }
-
-  // 3) Grouper les véhicules par centre
-  const grouped = {};
-  Object.values(itv.vehicules || {}).forEach(obj => {
-    const centre = obj[0] || '';
-    if (!grouped[centre]) grouped[centre] = [];
-    Object.entries(obj).forEach(([key, val]) => {
-      if (key === '0' || key === 'Statut') return;
-      grouped[centre].push({
-        code:   key,
-        status: obj.Statut || ''
-      });
-    });
-  });
-
-  // 4) Construire la liste détaillée
-  html += `<div style="margin-top:8px;">`;
-  Object.entries(grouped).forEach(([centre, vehs]) => {
-    html += `
-      <div class="interv-detail">
-        <div style="font-weight:bold;">${centre} :</div>
-        <div class="vehicles-row">
-          ${vehs.map(({code, status}) =>
-            `<div class="vehicle ${getStatusClass(status)}">${code} ${status}</div>`
-          ).join('')}
-        </div>
-      </div>
-    `;
-  });
-  html += `</div>`;
-
-  mrk.getPopup().setContent(html);
-});
-
-
-        // clic réouvre toujours la popup
-        mrk.on('click', () => mrk.openPopup());
-      });
-
-      // Isère interventions (inchangé)
-// Isère interventions — lecture de "Engins Engagés" et popup détaillé
-db.ref('Isère/Interventions').on('child_added', snap => {
-  const id = snap.key;
-  const itv = snap.val() || {};
-  if (interventionMarkersIsere[id]) return;
-
-  const addr = itv['Adresse'] || '';
-  const dh = itv['dhDebutInter'] || '';
-  const motif = itv['sinistreCourant'] || '';
-
-  // géocodage de l'adresse (Nominatim)
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
-    .then(r => r.json())
-    .then(res => {
-      if (!res.length) return;
-      const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
-      const mrk = L.marker([lat, lon], { icon: makeItvIconIsere(id) }).addTo(map);
-      interventionMarkersIsere[id] = mrk;
-
-      // on récupère la structure "Engins Engagés" (nouveau chemin)
-      db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap => {
-        const engOrdered = esnap.val() || {}; // clefs "0","1",...
-        // groups: centre -> array of { code, statut }
-        const groups = {};
-
-        // itération par ordre d'alerte
-        Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
-          const centresObj = engOrdered[orderKey] || {};
-          // centresObj: { [nomCentre]: { [nomEngin]: { Statut: '...' }, ... }, ... }
-          Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
-            if (!groups[centreName]) groups[centreName] = [];
-            Object.entries(enginsObj).forEach(([enginName, engData]) => {
-              const statut = (engData && engData.Statut) ? String(engData.Statut).trim() : '';
-              groups[centreName].push({ code: enginName, statut });
-              // remplir engagedMap pour recherche via badges (clé centre_engin)
-              engagedMap[`${centreName}_${enginName}`] = id;
+    // construire grouped structure centre -> [{code, status}]
+    const grouped = {};
+    try {
+      const vehs = itv.vehicules || {};
+      Object.keys(vehs).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(k=>{
+        const obj = vehs[k];
+        if (!obj) return;
+        // si obj est string, skip
+        if (typeof obj === 'string') return;
+        // tentative : si obj contient centreName as key(s)
+        Object.entries(obj).forEach(([centreName, engObj])=>{
+          if (!centreName) return;
+          if (!grouped[centreName]) grouped[centreName] = [];
+          if (typeof engObj === 'object') {
+            Object.entries(engObj).forEach(([enginName, engData])=>{
+              const status = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : (obj.Statut || '');
+              grouped[centreName].push({ code: enginName, status: String(status||'').trim() });
+              // remplir engagedMap en normalisant le nom du centre (Ste-Colombe -> Sainte-Colombe)
+              const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
+              engagedMap[`${displayCentre}_${enginName}`] = id;
             });
-          });
+          } else if (typeof engObj === 'string') {
+            // improbable: si la structure est différente, on l'ignore pour les détails
+          }
         });
-
-        // binder un popup vierge puis le remplir dynamiquement à chaque ouverture
-        mrk.bindPopup('Chargement…');
-        mrk.on('popupopen', () => {
-          let html = `<strong>${dh} - ${motif}</strong>`;
-          html += `<p>${addr}</p>`;
-          // afficher centre : engins1 engins2 ...
-          Object.entries(groups).forEach(([centre, engs]) => {
-            const codes = engs.map(e => e.code).join(' ');
-            html += `
-              <div class="interv-detail">
-                <div><strong>${centre} :</strong></div>
-                <div>${codes}</div>
-              </div>
-            `;
-          });
-          mrk.getPopup().setContent(html);
-        });
-
-        // garantir qu'on peut cliquer plusieurs fois pour rouvrir
-        mrk.on('click', () => mrk.openPopup());
-      }).catch(console.warn);
-    }).catch(console.warn);
-});
-
-      // cross-links dans tous les popups
-      map.on('popupopen', e=>{
-        const el = e.popup.getElement();
-        const linkC = el.querySelector('.popup-caserne');
-        if (linkC) linkC.onclick = ev=>{
-          ev.preventDefault();
-          openCaserne(linkC.dataset.name);
-        };
-        const linkI = el.querySelector('.popup-interv');
-        if (linkI) linkI.onclick = ev=>{
-          ev.preventDefault();
-          openIntervention(linkI.dataset.id);
-        };
       });
+    } catch(e) { console.warn('parse vehicules Rhône', e); }
 
-      map.fitBounds(
-        L.latLngBounds(stations.map(s=>[s.lat,s.lng])),
-        { padding:[50,50] }
-      );
-    }
+    // bind a dynamic popup that renders vehicles as colored badges like in Caserne
+    mrk.bindPopup('Chargement…');
+    mrk.on('popupopen', () => {
+      let html = `<a href="#" class="popup-interv" data-id="${id}"><strong>${itv.createdAt || ''} - ${itv.motif || itv.sinistreCourant || ''}</strong></a>`;
+      if (itv.adresse || itv.Adresse) html += `<p>${itv.adresse || itv.Adresse}</p>`;
+      html += `<div style="margin-top:8px;">`;
+      Object.entries(grouped).forEach(([centre, vehs])=>{
+        html += `<div class="interv-detail"><div style="font-weight:bold;">${centre} :</div><div class="vehicles-row">`;
+        html += vehs.map(v => `<div class="vehicle ${getStatusClass(v.status)}">${v.code}</div>`).join('');
+        html += `</div></div>`;
+      });
+      html += `</div>`;
+      mrk.getPopup().setContent(html);
+    });
+    mrk.on('click', ()=> mrk.openPopup());
+  });
 
-    // 10) Casernes list
-    function initCasernesList() {
-      stations.slice().sort((a,b)=>a.nom.localeCompare(b.nom))
-        .forEach(s=>{
-          const item = document.createElement('div');
-          item.className    = 'station-item';
-          item.textContent  = s.nom;
-          item.dataset.name = s.nom;
-          casernesDiv.appendChild(item);
-
-          const syn = document.createElement('div');
-          syn.className = 'synoptic hidden';
-          casernesDiv.appendChild(syn);
-
-          item.onclick = ()=> {
-            if (syn.classList.contains('hidden')) {
-              syn.innerHTML = '';
-              let cats, dataObj;
-              if (s.nom==='Condrieu') {
-                cats    = categories;
-                dataObj = stationData['Condrieu']||{};
-              } else if (s.nom==='Vienne') {
-                cats    = categoriesVienne;
-                dataObj = centreData['Vienne']||{};
-              } else if (s.nom==='Chasse-sur-Rhône') {
-                cats    = categoriesChasse;
-                dataObj = centreData['Chasse-sur-Rhône']||{};
-              } else {
-                cats    = { "Secours à Personne":["VSAV 01"] };
-                dataObj = stationData[s.nom]||{};
-              }
-              Object.entries(cats).forEach(([cat,list])=>{
-                const sec   = document.createElement('div');
-                sec.className = 'category-section';
-                const title = document.createElement('div');
-                title.className = 'category-title';
-                title.textContent = cat;
-                sec.appendChild(title);
-                const row   = document.createElement('div');
-                row.className = 'vehicles-row';
-                list.forEach(name=>{
-                  const st  = (dataObj[name]||'').trim();
-                  const cls = getStatusClass(st);
-                  const v   = document.createElement('div');
-                  v.className   = `vehicle ${cls}`;
-                  v.textContent = name;
-                  row.appendChild(v);
-                });
-                sec.appendChild(row);
-                syn.appendChild(sec);
-              });
-              syn.classList.remove('hidden');
-            } else {
-              syn.classList.add('hidden');
-            }
-          };
-        });
-    }
-
-    // 11) Liste des interventions
-    function subscribeInterventionsList() {
-      intervsDiv.innerHTML = '';
-
-      // 11a) Rhône : détail caserne / engins côte à côte
-     // 11b) Isère — nouvelle lecture de "Engins Engagés"
-db.ref('Isère/Interventions').orderByChild('dhDebutInter')
-  .on('child_added', snap => {
+  // Isère interventions — lecture de "Engins Engagés" et popup détaillé (avec badges colorés)
+  const refIsere = db.ref('Isère/Interventions');
+  refIsere.off('child_added');
+  refIsere.on('child_added', snap => {
     const id = snap.key;
     const itv = snap.val() || {};
-    const time = itv.dhDebutInter || '';
-    const motif = itv.sinistreCourant || '';
-    const address = itv.Adresse || '';
+    if (interventionMarkersIsere[id]) return;
 
-    const item = document.createElement('div');
-    item.className = 'intervention-item';
-    item.dataset.id = id;
-    item.innerHTML = `<strong>${time} - ${motif}</strong>`;
+    const addr = itv['Adresse'] || '';
+    const dh = itv['dhDebutInter'] || '';
+    const motif = itv['sinistreCourant'] || '';
 
-    const syn = document.createElement('div');
-    syn.className = 'interv-synoptic hidden';
+    // géocodage de l'adresse (Nominatim)
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
+      .then(r => r.json())
+      .then(res => {
+        if (!res.length) return;
+        const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
+        const mrk = L.marker([lat, lon], { icon: makeItvIconIsere(id) }).addTo(map);
+        interventionMarkersIsere[id] = mrk;
 
-    item.addEventListener('click', () => {
-      if (!syn._init) {
-        syn.innerHTML = '';
-        // adresse
-        const pAddr = document.createElement('p');
-        pAddr.textContent = address;
-        syn.appendChild(pAddr);
-
-        // read "Engins Engagés"
+        // on récupère la structure "Engins Engagés"
         db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap => {
-          const engOrdered = esnap.val() || {};
+          const engOrdered = esnap.val() || {}; // clefs "0","1",...
           const groups = {};
-
+          // remplir engagedMap et groups
           Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
             const centresObj = engOrdered[orderKey] || {};
             Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
               if (!groups[centreName]) groups[centreName] = [];
-              Object.entries(enginsObj).forEach(([enginName, engData]) => {
-                const statut = (engData && engData.Statut) ? String(engData.Statut).trim() : '';
-                groups[centreName].push({ code: enginName, statut });
-                // remplir engagedMap (utile pour clic sur badge)
-                engagedMap[`${centreName}_${enginName}`] = id;
+              Object.entries(enginsObj || {}).forEach(([enginName, engData]) => {
+                const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+                groups[centreName].push({ code: enginName, status: String(statut||'').trim() });
+                const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
+                engagedMap[`${displayCentre}_${enginName}`] = id;
               });
             });
           });
 
-          // affichage côte-à-côte centre | engins (codes séparés par espace)
-          Object.entries(groups).forEach(([centre, engs]) => {
+          mrk.bindPopup('Chargement…');
+          mrk.on('popupopen', () => {
+            let html = `<strong>${dh} - ${motif}</strong>`;
+            html += `<p>${addr}</p>`;
+            Object.entries(groups).forEach(([centre, engs]) => {
+              html += `<div class="interv-detail"><div><strong>${centre} :</strong></div><div class="vehicles-row">`;
+              html += engs.map(e => `<div class="vehicle ${getStatusClass(e.status)}">${e.code}</div>`).join('');
+              html += `</div></div>`;
+            });
+            mrk.getPopup().setContent(html);
+          });
+          mrk.on('click', () => mrk.openPopup());
+        }).catch(console.warn);
+      }).catch(console.warn);
+  });
+
+  // cross-links dans tous les popups
+  map.on('popupopen', e=>{
+    const el = e.popup.getElement();
+    const linkC = el.querySelector('.popup-caserne');
+    if (linkC) linkC.onclick = ev=>{
+      ev.preventDefault();
+      openCaserne(linkC.dataset.name);
+    };
+    const linkI = el.querySelector('.popup-interv');
+    if (linkI) linkI.onclick = ev=>{
+      ev.preventDefault();
+      openIntervention(linkI.dataset.id);
+    };
+  });
+
+  map.fitBounds(
+    L.latLngBounds(stations.map(s=>[s.lat,s.lng])),
+    { padding:[50,50] }
+  );
+}
+
+    // 10) Casernes list
+const synMap = {}; // stocke le DOM synoptique par nom de caserne pour rafraîchissement temps réel
+
+function initCasernesList() {
+  casernesDiv.innerHTML = '';
+
+  stations.slice().sort((a,b)=>a.nom.localeCompare(b.nom))
+    .forEach(s=>{
+      const item = document.createElement('div');
+      item.className    = 'station-item';
+      item.textContent  = s.nom;
+      item.dataset.name = s.nom;
+      casernesDiv.appendChild(item);
+
+      const syn = document.createElement('div');
+      syn.className = 'synoptic hidden';
+      casernesDiv.appendChild(syn);
+
+      // garder la référence pour updates en temps réel
+      synMap[s.nom] = syn;
+
+      item.onclick = ()=> {
+        togglePopulateSynoptic(s.nom, syn);
+      };
+    });
+}
+
+function togglePopulateSynoptic(name, syn) {
+  if (syn.classList.contains('hidden')) {
+    populateCaserneSynoptic(name, syn);
+    syn.classList.remove('hidden');
+  } else {
+    syn.classList.add('hidden');
+  }
+}
+
+/**
+ * populateCaserneSynoptic
+ * - gère Sainte-Colombe en temps réel depuis stationData['Sainte-Colombe']
+ * - applique les mêmes catégories/format que Condrieu
+ */
+function populateCaserneSynoptic(name, syn) {
+  syn.innerHTML = '';
+  let cats, dataObj;
+
+  if (name === 'Condrieu') {
+    cats    = categories;
+    dataObj = stationData['Condrieu'] || {};
+  } else if (name === 'Vienne') {
+    cats    = categoriesVienne;
+    dataObj = centreData['Vienne'] || {};
+  } else if (name === 'Chasse-sur-Rhône') {
+    cats    = categoriesChasse;
+    dataObj = centreData['Chasse-sur-Rhône'] || {};
+  } else if (name === 'Sainte-Colombe') {
+    // Catégories demandées pour Sainte-Colombe (même style que Condrieu)
+    const catsSte = {
+      "Secours à Personne":["VSAV 01"],
+      "Incendie":["FPTL 01","CCFM 01"],
+      "Opérations Diverses":["VFI 01","VTUTP 01"],
+      "Commandement":["VLCDG 01"],
+      "Secours Nautiques":["BMS 01","R2BLS 01"],
+      "Remorque Cellule Lot":[
+        "LBACHE 01","LBALIS 01","LCTHER 01",
+        "LDNOY 01","LECLE 01","LTRON 01"
+      ]
+    };
+    dataObj = stationData['Sainte-Colombe'] || {};
+
+    // Construire les sections selon catsSte
+    Object.entries(catsSte).forEach(([cat,list])=>{
+      const sec   = document.createElement('div');
+      sec.className = 'category-section';
+      const title = document.createElement('div');
+      title.className = 'category-title';
+      title.textContent = cat;
+      sec.appendChild(title);
+      const row   = document.createElement('div');
+      row.className = 'vehicles-row';
+
+      list.forEach(keyName=>{
+        // récupérer statut selon formes possibles dans stationData
+        let st = '';
+        if (dataObj && dataObj[keyName] !== undefined) {
+          const val = dataObj[keyName];
+          if (val && typeof val === 'object') st = val.Statut ?? val.statut ?? val.status ?? '';
+          else if (typeof val === 'string') st = val;
+        }
+        const v = document.createElement('div');
+        v.className = `vehicle ${getStatusClass(st)}`;
+        v.textContent = keyName;
+        row.appendChild(v);
+      });
+
+      sec.appendChild(row);
+      syn.appendChild(sec);
+    });
+
+    return;
+  } else {
+    cats    = { "Secours à Personne":["VSAV 01"] };
+    dataObj = stationData[name] || {};
+  }
+
+  Object.entries(cats).forEach(([cat, list])=>{
+    const sec   = document.createElement('div');
+    sec.className = 'category-section';
+    const title = document.createElement('div');
+    title.className = 'category-title';
+    title.textContent = cat;
+    sec.appendChild(title);
+    const row   = document.createElement('div');
+    row.className = 'vehicles-row';
+    list.forEach(keyName=>{
+      let st = '';
+      if (dataObj && dataObj[keyName] !== undefined) {
+        const val = dataObj[keyName];
+        if (val && typeof val === 'object') st = val.Statut ?? val.statut ?? val.status ?? '';
+        else if (typeof val === 'string') st = val;
+      }
+      const v = document.createElement('div');
+      v.className = `vehicle ${getStatusClass(st)}`;
+      v.textContent = keyName;
+      row.appendChild(v);
+    });
+    sec.appendChild(row);
+    syn.appendChild(sec);
+  });
+}
+
+function refreshCaserneSynoptic(name) {
+  const syn = synMap[name];
+  if (!syn) return;
+  if (!syn.classList.contains('hidden')) {
+    populateCaserneSynoptic(name, syn);
+  }
+}
+
+// 11) Liste des interventions (remplace la partie existante)
+// S'assure d'éviter les doublons (.off + Sets) et affiche pour l'Isère
+// les centres à gauche et, en face, les engins colorés par statut.
+function subscribeInterventionsList() {
+  intervsDiv.innerHTML = '';
+
+  // détacher d'éventuels handlers précédents pour éviter doublons
+  db.ref('Interventions').off('child_added');
+  db.ref('Isère/Interventions').off('child_added');
+
+  const seenRhone = new Set();
+  const seenIsere = new Set();
+
+  // ---- Rhône (si tu veux aussi la liste Rhône, sinon supprime ce bloc) ----
+  db.ref('Interventions').orderByChild('createdAt')
+    .on('child_added', snap => {
+      const id = snap.key;
+      if (seenRhone.has(id)) return;
+      seenRhone.add(id);
+
+      const itv = snap.val() || {};
+      const time = itv.createdAt || '';
+      const motif = itv.motif || itv.sinistreCourant || '';
+      const address = itv.adresse || itv.Adresse || '';
+
+      const item = document.createElement('div');
+      item.className = 'intervention-item';
+      item.dataset.id = id;
+      item.innerHTML = `<strong>${time} - ${motif}</strong>`;
+
+      const syn = document.createElement('div');
+      syn.className = 'interv-synoptic hidden';
+
+      item.addEventListener('click', () => {
+        if (!syn._init) {
+          syn.innerHTML = '';
+
+          // adresse si dispo
+          if (address) {
+            const pAddr = document.createElement('p');
+            pAddr.textContent = address;
+            syn.appendChild(pAddr);
+          }
+
+          // construire grouped centre -> [{code, status}]
+          const grouped = {};
+          const vehs = itv.vehicules || {};
+          Object.keys(vehs).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(k=>{
+            const obj = vehs[k];
+            if (!obj || typeof obj === 'string') return;
+            // cas où obj est du type { "Condrieu": { "VSAV 01": {Statut: "AL"} } }
+            Object.entries(obj).forEach(([centreName, engObj])=>{
+              if (!centreName) return;
+              if (!grouped[centreName]) grouped[centreName] = [];
+              if (typeof engObj === 'object') {
+                Object.entries(engObj).forEach(([enginName, engData])=>{
+                  const status = (engData && (engData.Statut ?? engData.statut ?? engData.status)) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+                  grouped[centreName].push({ code: enginName, status: String(status||'').trim() });
+                  // remplir engagedMap pour ouverture via badge (normalise Ste-Colombe -> Sainte-Colombe)
+                  const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
+                  engagedMap[`${displayCentre}_${enginName}`] = id;
+                });
+              }
+            });
+          });
+
+          // affichage : centre à gauche, engins (badges colorés) à droite
+          Object.entries(grouped).forEach(([centre, vehs])=>{
             const detail = document.createElement('div');
             detail.className = 'interv-detail';
+
             const left = document.createElement('div');
             left.textContent = centre;
             left.style.fontWeight = 'bold';
+
             const right = document.createElement('div');
-            right.textContent = engs.map(e => e.code).join(' ');
+            right.className = 'vehicles-row';
+            vehs.forEach(v=>{
+              const vb = document.createElement('div');
+              vb.className = `vehicle ${getStatusClass(v.status)}`;
+              vb.textContent = v.code;
+              right.appendChild(vb);
+            });
+
             detail.appendChild(left);
             detail.appendChild(right);
             syn.appendChild(detail);
@@ -715,95 +775,102 @@ db.ref('Isère/Interventions').orderByChild('dhDebutInter')
 
           syn._init = true;
           syn.classList.remove('hidden');
-        }).catch(err => {
-          // en cas d'erreur on affiche simplement l'adresse
-          syn.classList.remove('hidden');
-          console.warn(err);
-        });
-      } else {
-        syn.classList.toggle('hidden');
-      }
+        } else {
+          syn.classList.toggle('hidden');
+        }
+      });
+
+      intervsDiv.append(item, syn);
     });
 
-    intervsDiv.append(item, syn);
-  });
+  // ---- Isère (nouvelle structure "Engins Engagés") ----
+  db.ref('Isère/Interventions').orderByChild('dhDebutInter')
+    .on('child_added', snap => {
+      const id = snap.key;
+      if (seenIsere.has(id)) return;
+      seenIsere.add(id);
 
-      // 11b) Isère (inchangé)
-      // ─── 4) Liste latérale – subscribe Isère ──────────────────────────────────────
-db.ref('Isère/Interventions').orderByChild('dhDebutInter')
-  .on('child_added', snap => {
-    const id      = snap.key;
-    const itv     = snap.val() || {};
-    const time    = itv.dhDebutInter    || '';
-    const motif   = itv.sinistreCourant || '';
-    const address = itv.Adresse         || '';
+      const itv = snap.val() || {};
+      const time = itv.dhDebutInter || '';
+      const motif = itv.sinistreCourant || '';
+      const address = itv.Adresse || '';
 
-    // élément résumé
-    const item = document.createElement('div');
-    item.className  = 'intervention-item';
-    item.dataset.id = id;
-    item.innerHTML  = `<strong>${time} - ${motif}</strong>`;
+      const item = document.createElement('div');
+      item.className = 'intervention-item';
+      item.dataset.id = id;
+      item.innerHTML = `<strong>${time} - ${motif}</strong>`;
 
-    // conteneur détail
-    const syn = document.createElement('div');
-    syn.className = 'interv-synoptic hidden';
+      const syn = document.createElement('div');
+      syn.className = 'interv-synoptic hidden';
 
-    item.addEventListener('click', () => {
-      if (!syn._init) {
-        syn.innerHTML = '';
+      item.addEventListener('click', () => {
+        if (!syn._init) {
+          syn.innerHTML = '';
 
-        // adresse
-        const pAddr = document.createElement('p');
-        pAddr.textContent = address;
-        syn.appendChild(pAddr);
+          // afficher adresse en haut
+          if (address) {
+            const pAddr = document.createElement('p');
+            pAddr.textContent = address;
+            syn.appendChild(pAddr);
+          }
 
-        // titre engins
-        const pTitle = document.createElement('p');
-        pTitle.textContent = 'Engins engagés :';
-        syn.appendChild(pTitle);
+          // Lire la structure "Engins Engagés" triée par ordre d'alerte
+          db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap=>{
+            const engOrdered = esnap.val() || {};
+            const groups = {}; // centre -> [{code, status}]
 
-        // regrouper par centre
-        const groups = {};
-        const engs   = itv['Engins Engagés'] || {};
-        Object.values(engs).forEach(obj => {
-          const centre = obj[0] || '';
-          if (!groups[centre]) groups[centre] = [];
-          Object.entries(obj).forEach(([key, val]) => {
-            if (key === '0' || key === 'Statut') return;
-            groups[centre].push({
-              code:   key,
-              status: obj.Statut || ''
+            Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
+              const centresObj = engOrdered[orderKey] || {};
+              Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
+                if (!groups[centreName]) groups[centreName] = [];
+                Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
+                  const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+                  groups[centreName].push({ code: enginName, status: String(statut||'').trim() });
+                  // remplir engagedMap (normalise Ste-Colombe -> Sainte-Colombe)
+                  const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
+                  engagedMap[`${displayCentre}_${enginName}`] = id;
+                });
+              });
             });
+
+            // Affichage côte-à-côte centre | engins colorés
+            Object.entries(groups).forEach(([centre, engs])=>{
+              const detail = document.createElement('div');
+              detail.className = 'interv-detail';
+
+              const left = document.createElement('div');
+              left.textContent = centre;
+              left.style.fontWeight = 'bold';
+
+              const right = document.createElement('div');
+              right.className = 'vehicles-row';
+              engs.forEach(e=>{
+                const vb = document.createElement('div');
+                vb.className = `vehicle ${getStatusClass(e.status)}`;
+                vb.textContent = e.code;
+                right.appendChild(vb);
+              });
+
+              detail.appendChild(left);
+              detail.appendChild(right);
+              syn.appendChild(detail);
+            });
+
+            syn._init = true;
+            syn.classList.remove('hidden');
+          }).catch(err=>{
+            console.warn(err);
+            // en erreur, afficher juste l'adresse
+            syn.classList.remove('hidden');
           });
-        });
+        } else {
+          syn.classList.toggle('hidden');
+        }
+      });
 
-        // construire l’affichage
-        Object.entries(groups).forEach(([centre, vehs]) => {
-          const h = document.createElement('div');
-          h.textContent      = centre + ' :';
-          h.style.margin     = '8px 0 4px';
-          h.style.fontWeight = 'bold';
-          syn.appendChild(h);
-
-          const row = document.createElement('div');
-          row.className = 'vehicles-row';
-          vehs.forEach(({code, status}) => {
-            const v = document.createElement('div');
-            v.className   = 'vehicle ' + getStatusClass(status);
-            v.textContent = code;
-            row.appendChild(v);
-          });
-          syn.appendChild(row);
-        });
-
-        syn._init = true;
-      }
-      syn.classList.toggle('hidden');
+      intervsDiv.append(item, syn);
     });
-
-    intervsDiv.append(item, syn);
-  });
-    }
+}
 
     // 12) Badge → carte
     casernesDiv.addEventListener('click', e => {
