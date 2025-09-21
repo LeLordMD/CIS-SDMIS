@@ -855,21 +855,27 @@ item.addEventListener('click', () => {
 
     // Adresse (titre + valeur)
     if (address) {
-      const titleAddr = document.createElement('div');
-      titleAddr.style.fontWeight = 'bold';
-      titleAddr.style.marginBottom = '6px';
-      titleAddr.textContent = 'Adresse';
-      syn.appendChild(titleAddr);
+     // Titre "Adresse"
+const titleAddr = document.createElement('div');
+titleAddr.style.fontWeight = 'bold';
+titleAddr.style.marginBottom = '6px';
+titleAddr.style.marginLeft = '8px'; // léger décalage vers la droite
+titleAddr.textContent = 'Adresse';
+syn.appendChild(titleAddr);
 
-      const pAddr = document.createElement('p');
-      pAddr.textContent = address;
-      syn.appendChild(pAddr);
+// Adresse elle-même
+const pAddr = document.createElement('p');
+pAddr.textContent = address;
+pAddr.style.marginLeft = '8px'; // même décalage que le titre
+pAddr.style.marginTop = '4px';
+pAddr.style.marginBottom = '6px';
+syn.appendChild(pAddr);
 
-      // trait de séparation léger
-      const hr = document.createElement('div');
-      hr.style.borderTop = '1px solid #e0e0e0';
-      hr.style.margin = '8px 0';
-      syn.appendChild(hr);
+// trait de séparation léger
+const hr = document.createElement('div');
+hr.style.borderTop = '1px solid #e0e0e0';
+hr.style.margin = '8px 0';
+syn.appendChild(hr);
     }
 
     // En-têtes Centre / Engins engagés (même couleur pour les deux)
@@ -906,12 +912,15 @@ item.addEventListener('click', () => {
       detail.style.columnGap = '12px';
 
       const left = document.createElement('div');
-      left.textContent = centre;
-      left.style.fontWeight = 'bold';
-      left.style.flex = '0 0 35%';
-      left.style.maxWidth = '35%';
-      left.style.color = '#000';          // même couleur que l'en-tête
-      left.style.wordBreak = 'break-word';
+left.textContent = centre;
+left.style.fontWeight = 'bold';
+left.style.flex = '0 0 35%';
+left.style.maxWidth = '35%';
+left.style.color = '#000';
+left.style.wordBreak = 'break-word';
+left.style.display = 'flex';
+left.style.alignItems = 'center'; // centre verticalement
+left.style.paddingLeft = '8px';    // léger décalage vers la droite pour alignement
 
       const right = document.createElement('div');
       right.className = 'vehicles-row';
@@ -949,20 +958,28 @@ item.addEventListener('click', () => {
     syn.innerHTML = '';
 
     if (address) {
-      const titleAddr = document.createElement('div');
-      titleAddr.style.fontWeight = 'bold';
-      titleAddr.style.marginBottom = '6px';
-      titleAddr.textContent = 'Adresse';
-      syn.appendChild(titleAddr);
+      // Titre "Adresse"
+const titleAddr = document.createElement('div');
+titleAddr.style.fontWeight = 'bold';
+titleAddr.style.marginBottom = '6px';
+titleAddr.style.marginLeft = '8px'; // léger décalage vers la droite
+titleAddr.textContent = 'Adresse';
+syn.appendChild(titleAddr);
 
-      const pAddr = document.createElement('p');
-      pAddr.textContent = address;
-      syn.appendChild(pAddr);
+// Adresse elle-même
+const pAddr = document.createElement('p');
+pAddr.textContent = address;
+pAddr.style.marginLeft = '8px'; // même décalage que le titre
+pAddr.style.marginTop = '4px';
+pAddr.style.marginBottom = '6px';
+syn.appendChild(pAddr);
 
-      const hr = document.createElement('div');
-      hr.style.borderTop = '1px solid #e0e0e0';
-      hr.style.margin = '8px 0';
-      syn.appendChild(hr);
+// trait de séparation léger
+const hr = document.createElement('div');
+hr.style.borderTop = '1px solid #e0e0e0';
+hr.style.margin = '8px 0';
+syn.appendChild(hr);
+
     }
 
     const headerRow = document.createElement('div');
