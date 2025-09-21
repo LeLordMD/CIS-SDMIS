@@ -163,7 +163,7 @@
       "Secours Nautiques":["BMS 01", "R2BLS 01","LDEPOL 01"],
       "Remorque Cellule Lot":[
         "LBACHE 01","LBALIS 01","LCITS5 01",
-        "LDNOY 01","LECLE 01","LELEC 01",
+        "LDNROY 01","LECLE 01","LELEC 01",
         "LGAZ 01","LTRON 01","MPR 01"
       ]
     };
@@ -190,44 +190,50 @@
     }
 
     // 4) Data trackers
-    const stationData    = {}, stationRefs    = {}, stationMarkers    = {};
-    const centreData     = {}, centreRefs     = {};
-    const engagedMap     = {};
-    const interventionMarkersRhône = {}, interventionMarkersIsere = {};
-    
+const stationData    = {}, stationRefs    = {}, stationMarkers    = {};
+const centreData     = {}, centreRefs     = {};
+const engagedMap     = {}; // clé: "Centre_Engin" -> itvId
+const interventionMarkersRhône = {}, interventionMarkersIsere = {};
+const interventionDataRhône = {}; // stocke la payload complète par id
+const interventionDataIsere  = {}; // idem pour Isère
+
 // helper : remplir engagedMap depuis Isère/Interventions/[id]/Engins Engagés
 function fillEngagedMapFromIsere(id, engOrdered) {
-  // engOrdered attendu: objet avec clés "0","1",... -> { [centre]: { [engin]: { Statut: '...'} } }
   Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
     const centresObj = engOrdered[orderKey] || {};
     Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
       Object.keys(enginsObj || {}).forEach(enginName => {
-        engagedMap[`${centreName}_${enginName}`] = id;
+        const displayCentre = (String(centreName) === 'Ste-Colombe') ? 'Sainte-Colombe' : centreName;
+        engagedMap[`${displayCentre}_${enginName}`] = id;
       });
     });
   });
 }
 
-    stations.forEach(s=>{
-      if (s.nom==="Vienne"||s.nom==="Chasse-sur-Rhône") {
-        centreRefs[s.nom] = db.ref(`Isère/Centre/${s.nom}`);
-        centreRefs[s.nom].on('value', snap=>{
-          centreData[s.nom] = snap.val()||{};
-          updateIcon(s.nom);
-        });
-      } else {
-        // dans la boucle stations.forEach(s => { ... })
-const path = (s.nom === 'Sainte-Colombe') ? 'CIS/Ste-Colombe/Engins' : `CIS/${s.nom}/Engins`;
-stationRefs[s.nom] = db.ref(path);
-stationRefs[s.nom].on('value', snap => {
-  stationData[s.nom] = snap.val() || {};
-  updateIcon(s.nom);
-  refreshCaserneSynoptic(s.nom); 
-  // rafraîchir la vue si ouverte
-});
-
-      }
+// attach realtime listeners for station nodes (supports updates, removals)
+stations.forEach(s=>{
+  if (s.nom==="Vienne"||s.nom==="Chasse-sur-Rhône") {
+    centreRefs[s.nom] = db.ref(`Isère/Centre/${s.nom}`);
+    centreRefs[s.nom].on('value', snap=>{
+      centreData[s.nom] = snap.val()||{};
+      updateIcon(s.nom);
+      refreshCaserneSynoptic(s.nom);
     });
+  } else {
+    const path = (s.nom === 'Sainte-Colombe') ? 'CIS/Ste-Colombe/Engins' : `CIS/${s.nom}/Engins`;
+    stationRefs[s.nom] = db.ref(path);
+
+    // value listener keeps stationData up-to-date and triggers UI refreshes
+    stationRefs[s.nom].on('value', snap => {
+      stationData[s.nom] = snap.val() || {};
+      updateIcon(s.nom);
+      refreshCaserneSynoptic(s.nom);
+      // if any engagedMap entries depend on this station, force UI refresh of interventions list and popups
+      refreshAllInterventionPopups();
+      refreshInterventionsListOpenItems();
+    });
+  }
+});
 
     // 5) Station icons
     function makeStationIcon(color) {
@@ -393,7 +399,7 @@ stationRefs[s.nom].on('value', snap => {
       }
     }
 
-   // 9) Init map & markers
+// 9) Init map & markers (ajout d'un fallback Nominatim pour géocoder si GPS invalide)
 let map;
 function initMap() {
   map = L.map('map');
@@ -410,120 +416,230 @@ function initMap() {
     stationMarkers[s.nom] = m;
   });
 
-  // Rhône interventions (popups dynamiques et réutilisables)
+  // normalizeCentreName (utilisé pour engagedMap / affichage)
+  function normalizeCentreName(raw) {
+    if (!raw) return raw;
+    const r = String(raw).trim();
+    const norm = r.replace(/\s+/g,' ').toUpperCase();
+    if (/(COLOMBE.*SAINTE|SAINTE.*COLOMBE|COLOMBE,\s*SAINTE)/.test(norm)) return 'Sainte-Colombe';
+    return raw;
+  }
+
+  // builder popup html réutilisable
+  function buildPopupHtmlFromGrouped(id, title, addr, grouped) {
+    let html = `<a href="#" class="popup-interv" data-id="${id}"><strong>${title}</strong></a>`;
+    if (addr) html += `<p>${addr}</p>`;
+    html += `<div style="margin-top:8px;">`;
+    Object.entries(grouped).forEach(([centre, vehs])=>{
+      html += `<div class="interv-detail"><div style="font-weight:bold;">${centre} :</div><div class="vehicles-row">`;
+      html += vehs.map(v => `<div class="vehicle ${getStatusClass(v.status)}">${v.code}</div>`).join('');
+      html += `</div></div>`;
+    });
+    html += `</div>`;
+    return html;
+  }
+
+  // helper: Nominatim geocode (returns Promise<{lat,lon}> or null)
+  function geocodeNominatim(address) {
+    if (!address || !address.trim()) return Promise.resolve(null);
+    const q = encodeURIComponent(address);
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q=${q}`;
+    return fetch(url, { headers: { 'Accept-Language': 'fr' } })
+      .then(r => r.ok ? r.json() : Promise.resolve([]))
+      .then(res => {
+        if (!res || !res.length) return null;
+        const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
+        if (isNaN(lat) || isNaN(lon)) return null;
+        return { lat, lon };
+      })
+      .catch(() => null);
+  }
+
+  // ------- Rhône interventions : child_added / child_changed / child_removed -------
   const refRh = db.ref('Interventions');
-  refRh.off('child_added');
-  refRh.on('child_added', snap=>{
-    const id  = snap.key, itv = snap.val()||{};
-    // gps peut être [lat, lng] ou objet; tenter robustement
-    let lat = NaN, lng = NaN;
-    if (Array.isArray(itv.gps) && itv.gps.length>=2) { lat = parseFloat(itv.gps[0]); lng = parseFloat(itv.gps[1]); }
-    else if (itv.gps && typeof itv.gps === 'object') { lat = parseFloat(itv.gps.lat ?? itv.gps[0]); lng = parseFloat(itv.gps.lng ?? itv.gps[1]); }
-    if (isNaN(lat) || isNaN(lng)) return;
+  refRh.off();
+  refRh.on('child_added', snap => upsertRhôneIntervention(snap.key, snap.val()));
+  refRh.on('child_changed', snap => upsertRhôneIntervention(snap.key, snap.val()));
+  refRh.on('child_removed', snap => removeRhôneIntervention(snap.key));
 
-    if (interventionMarkersRhône[id]) return;
-    const mrk = L.marker([lat,lng], {icon:makeItvIconRhône()}).addTo(map);
-    interventionMarkersRhône[id] = mrk;
-
-    // construire grouped structure centre -> [{code, status}]
-    const grouped = {};
+  function upsertRhôneIntervention(id, itv) {
     try {
-      const vehs = itv.vehicules || {};
-      Object.keys(vehs).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(k=>{
-        const obj = vehs[k];
-        if (!obj) return;
-        // si obj est string, skip
-        if (typeof obj === 'string') return;
-        // tentative : si obj contient centreName as key(s)
+      // parse GPS robustement (accepte tableau ou objet ou champs au parent)
+      let lat = NaN, lng = NaN;
+      const g = itv.gps;
+      if (Array.isArray(g) && g.length >= 2) { lat = parseFloat(g[0]); lng = parseFloat(g[1]); }
+      else if (g && typeof g === 'object') { lat = parseFloat(g.lat ?? g.latitude ?? g[0]); lng = parseFloat(g.lng ?? g.longitude ?? g[1]); }
+      else { lat = parseFloat(itv.lat ?? itv.latitude); lng = parseFloat(itv.lng ?? itv.longitude); }
+
+      // normaliser les nombres
+      if (!Number.isFinite(lat)) lat = NaN;
+      if (!Number.isFinite(lng)) lng = NaN;
+
+      // construire grouped centre -> [{code,status}] et remplir engagedMap (normalisation utilisée pour clefs)
+      const vehsRoot = itv.vehicules || {};
+      const grouped = {};
+      Object.keys(vehsRoot).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(k=>{
+        const obj = vehsRoot[k];
+        if (!obj || typeof obj === 'string') return;
         Object.entries(obj).forEach(([centreName, engObj])=>{
-          if (!centreName) return;
-          if (!grouped[centreName]) grouped[centreName] = [];
+          const displayCentre = normalizeCentreName(centreName);
+          if (!grouped[displayCentre]) grouped[displayCentre] = [];
           if (typeof engObj === 'object') {
             Object.entries(engObj).forEach(([enginName, engData])=>{
               const status = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : (obj.Statut || '');
-              grouped[centreName].push({ code: enginName, status: String(status||'').trim() });
-              // remplir engagedMap en normalisant le nom du centre (Ste-Colombe -> Sainte-Colombe)
-              const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
+              grouped[displayCentre].push({ code: enginName, status: String(status||'').trim() });
               engagedMap[`${displayCentre}_${enginName}`] = id;
             });
-          } else if (typeof engObj === 'string') {
-            // improbable: si la structure est différente, on l'ignore pour les détails
           }
         });
       });
-    } catch(e) { console.warn('parse vehicules Rhône', e); }
 
-    // bind a dynamic popup that renders vehicles as colored badges like in Caserne
-    mrk.bindPopup('Chargement…');
-    mrk.on('popupopen', () => {
-      let html = `<a href="#" class="popup-interv" data-id="${id}"><strong>${itv.createdAt || ''} - ${itv.motif || itv.sinistreCourant || ''}</strong></a>`;
-      if (itv.adresse || itv.Adresse) html += `<p>${itv.adresse || itv.Adresse}</p>`;
-      html += `<div style="margin-top:8px;">`;
-      Object.entries(grouped).forEach(([centre, vehs])=>{
-        html += `<div class="interv-detail"><div style="font-weight:bold;">${centre} :</div><div class="vehicles-row">`;
-        html += vehs.map(v => `<div class="vehicle ${getStatusClass(v.status)}">${v.code}</div>`).join('');
-        html += `</div></div>`;
-      });
-      html += `</div>`;
-      mrk.getPopup().setContent(html);
-    });
-    mrk.on('click', ()=> mrk.openPopup());
-  });
+      // helper pour créer / mettre à jour marker une fois coordonnées dispo
+      function placeOrUpdateRhôneMarker(latp, lngp) {
+        if (Number.isNaN(latp) || Number.isNaN(lngp)) return;
+        if (interventionMarkersRhône[id]) {
+          const mrk = interventionMarkersRhône[id];
+          interventionDataRhône[id] = { itv, grouped };
+          // on met à jour popup si ouvert
+          if (mrk.getPopup() && mrk.isPopupOpen()) {
+            const title = itv.createdAt || itv.dhDebutInter || '';
+            const addr = itv.adresse || itv.Adresse || '';
+            mrk.getPopup().setContent(buildPopupHtmlFromGrouped(id, `${title} - ${itv.motif || itv.sinistreCourant || ''}`, addr, grouped));
+          }
+        } else {
+          // créer le marker
+          const mrk = L.marker([latp, lngp], {icon:makeItvIconRhône()}).addTo(map);
+          interventionMarkersRhône[id] = mrk;
+          interventionDataRhône[id] = { itv, grouped };
+          mrk.bindPopup('Chargement…');
+          mrk.on('popupopen', ()=> {
+            const title = itv.createdAt || itv.dhDebutInter || '';
+            const addr = itv.adresse || itv.Adresse || '';
+            mrk.getPopup().setContent(buildPopupHtmlFromGrouped(id, `${title} - ${itv.motif || itv.sinistreCourant || ''}`, addr, grouped));
+            refreshInterventionsListOpenItems();
+          });
+          mrk.on('click', ()=> mrk.openPopup());
+        }
+      }
 
-  // Isère interventions — lecture de "Engins Engagés" et popup détaillé (avec badges colorés)
+      // si GPS valide on place directement, sinon on tente Nominatim sur l'adresse disponible
+      if (!isNaN(lat) && !isNaN(lng)) {
+        placeOrUpdateRhôneMarker(lat, lng);
+      } else {
+        // construire chaîne adresse prioritaire : adresse / Adresse / motif + commune fields
+        const candidates = [];
+        if (itv.adresse) candidates.push(itv.adresse);
+        if (itv.Adresse) candidates.push(itv.Adresse);
+        // concat possibles (commune fields communes or zone)
+        if (itv.commune) candidates.push(`${itv.commune}`);
+        if (itv.Commune) candidates.push(`${itv.Commune}`);
+        if (itv.ville) candidates.push(`${itv.ville}`);
+        // ajoute motif pour aider si rien d'autre
+        if (itv.motif) candidates.push(itv.motif);
+        // join and cleanup parentheses and double spaces
+        const rawAddr = candidates.filter(Boolean).join(' ');
+        const cleaned = rawAddr.replace(/\([^)]*\)/g,'').replace(/\s+/g,' ').trim();
+        // fallback: if cleaned empty, use id as label (no geocode)
+        if (!cleaned) {
+          console.warn(`Intervention ${id} : pas d'adresse pour géocoding Nominatim`, itv);
+          return;
+        }
+        geocodeNominatim(cleaned).then(coord => {
+          if (coord) placeOrUpdateRhôneMarker(coord.lat, coord.lon);
+          else console.warn(`Intervention ${id} : Nominatim n'a rien trouvé pour "${cleaned}"`);
+        });
+      }
+    } catch(e) {
+      console.error('Erreur upsert Rhône', id, e);
+    }
+  }
+
+  function removeRhôneIntervention(id) {
+    try {
+      const mrk = interventionMarkersRhône[id];
+      if (mrk) { map.removeLayer(mrk); delete interventionMarkersRhône[id]; }
+      delete interventionDataRhône[id];
+      Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+      refreshInterventionsListOpenItems();
+    } catch(e){ console.warn('removeRhôneIntervention', e); }
+  }
+
+  // ------- Isère interventions : child_added / child_changed / child_removed (inchangés) -------
   const refIsere = db.ref('Isère/Interventions');
-  refIsere.off('child_added');
-  refIsere.on('child_added', snap => {
-    const id = snap.key;
-    const itv = snap.val() || {};
-    if (interventionMarkersIsere[id]) return;
+  refIsere.off();
+  refIsere.on('child_added', snap => upsertIsereIntervention(snap.key, snap.val()));
+  refIsere.on('child_changed', snap => upsertIsereIntervention(snap.key, snap.val()));
+  refIsere.on('child_removed', snap => removeIsereIntervention(snap.key));
 
+  function upsertIsereIntervention(id, itv) {
+    if (!itv) return;
     const addr = itv['Adresse'] || '';
     const dh = itv['dhDebutInter'] || '';
     const motif = itv['sinistreCourant'] || '';
+    db.ref(`Isère/Interventions/${id}/Engins Engagés`).on('value', esnap => {
+      try {
+        const engOrdered = esnap.val() || {};
+        const groups = {};
+        Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
+          const centresObj = engOrdered[orderKey] || {};
+          Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
+            const displayCentre = normalizeCentreName(centreName);
+            if (!groups[displayCentre]) groups[displayCentre] = [];
+            Object.entries(enginsObj || {}).forEach(([enginName, engData]) => {
+              let statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+              if (displayCentre === 'Sainte-Colombe' && stationData['Sainte-Colombe'] && stationData['Sainte-Colombe'][enginName]) {
+                const sd = stationData['Sainte-Colombe'][enginName];
+                if (sd && typeof sd === 'object') statut = sd.Statut ?? sd.statut ?? sd.status ?? statut;
+                else if (typeof sd === 'string') statut = sd || statut;
+              }
+              groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
+              engagedMap[`${displayCentre}_${enginName}`] = id;
+            });
+          });
+        });
 
-    // géocodage de l'adresse (Nominatim)
-    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
-      .then(r => r.json())
-      .then(res => {
-        if (!res.length) return;
-        const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
-        const mrk = L.marker([lat, lon], { icon: makeItvIconIsere(id) }).addTo(map);
-        interventionMarkersIsere[id] = mrk;
+        interventionDataIsere[id] = { itv, groups, addr, dh, motif };
 
-        // on récupère la structure "Engins Engagés"
-        db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap => {
-          const engOrdered = esnap.val() || {}; // clefs "0","1",...
-          const groups = {};
-          // remplir engagedMap et groups
-          Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey => {
-            const centresObj = engOrdered[orderKey] || {};
-            Object.entries(centresObj).forEach(([centreName, enginsObj]) => {
-              if (!groups[centreName]) groups[centreName] = [];
-              Object.entries(enginsObj || {}).forEach(([enginName, engData]) => {
-                const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
-                groups[centreName].push({ code: enginName, status: String(statut||'').trim() });
-                const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
-                engagedMap[`${displayCentre}_${enginName}`] = id;
+        if (interventionMarkersIsere[id]) {
+          const mrk = interventionMarkersIsere[id];
+          if (mrk.getPopup() && mrk.isPopupOpen()) {
+            mrk.getPopup().setContent(buildPopupHtmlFromGrouped(id, `${dh} - ${motif}`, addr, groups));
+            refreshInterventionsListOpenItems();
+          }
+        } else {
+          if (!addr) return;
+          fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}`)
+            .then(r => r.json())
+            .then(res => {
+              if (!res.length) return;
+              const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
+              if (isNaN(lat) || isNaN(lon)) return;
+              const mrk = L.marker([lat, lon], { icon: makeItvIconIsere(id) }).addTo(map);
+              interventionMarkersIsere[id] = mrk;
+              mrk.bindPopup('Chargement…');
+              mrk.on('popupopen', ()=> {
+                mrk.getPopup().setContent(buildPopupHtmlFromGrouped(id, `${dh} - ${motif}`, addr, groups));
+                refreshInterventionsListOpenItems();
               });
-            });
-          });
+              mrk.on('click', ()=> mrk.openPopup());
+            }).catch(console.warn);
+        }
+      } catch(e) { console.warn('upsertIsereEngines', id, e); }
+    });
+  }
 
-          mrk.bindPopup('Chargement…');
-          mrk.on('popupopen', () => {
-            let html = `<strong>${dh} - ${motif}</strong>`;
-            html += `<p>${addr}</p>`;
-            Object.entries(groups).forEach(([centre, engs]) => {
-              html += `<div class="interv-detail"><div><strong>${centre} :</strong></div><div class="vehicles-row">`;
-              html += engs.map(e => `<div class="vehicle ${getStatusClass(e.status)}">${e.code}</div>`).join('');
-              html += `</div></div>`;
-            });
-            mrk.getPopup().setContent(html);
-          });
-          mrk.on('click', () => mrk.openPopup());
-        }).catch(console.warn);
-      }).catch(console.warn);
-  });
+  function removeIsereIntervention(id) {
+    try {
+      const mrk = interventionMarkersIsere[id];
+      if (mrk) { map.removeLayer(mrk); delete interventionMarkersIsere[id]; }
+      if (interventionDataIsere[id] && interventionDataIsere[id].engRef) {
+        db.ref(`Isère/Interventions/${id}/Engins Engagés`).off();
+      }
+      delete interventionDataIsere[id];
+      Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+      refreshInterventionsListOpenItems();
+    } catch(e){ console.warn('removeIsereIntervention', e); }
+  }
 
   // cross-links dans tous les popups
   map.on('popupopen', e=>{
@@ -540,6 +656,7 @@ function initMap() {
     };
   });
 
+  // ajuster la vue sur les casernes
   map.fitBounds(
     L.latLngBounds(stations.map(s=>[s.lat,s.lng])),
     { padding:[50,50] }
@@ -582,11 +699,6 @@ function togglePopulateSynoptic(name, syn) {
   }
 }
 
-/**
- * populateCaserneSynoptic
- * - gère Sainte-Colombe en temps réel depuis stationData['Sainte-Colombe']
- * - applique les mêmes catégories/format que Condrieu
- */
 function populateCaserneSynoptic(name, syn) {
   syn.innerHTML = '';
   let cats, dataObj;
@@ -601,7 +713,6 @@ function populateCaserneSynoptic(name, syn) {
     cats    = categoriesChasse;
     dataObj = centreData['Chasse-sur-Rhône'] || {};
   } else if (name === 'Sainte-Colombe') {
-    // Catégories demandées pour Sainte-Colombe (même style que Condrieu)
     const catsSte = {
       "Secours à Personne":["VSAV 01"],
       "Incendie":["FPTL 01","CCFM 01"],
@@ -615,7 +726,6 @@ function populateCaserneSynoptic(name, syn) {
     };
     dataObj = stationData['Sainte-Colombe'] || {};
 
-    // Construire les sections selon catsSte
     Object.entries(catsSte).forEach(([cat,list])=>{
       const sec   = document.createElement('div');
       sec.className = 'category-section';
@@ -627,7 +737,6 @@ function populateCaserneSynoptic(name, syn) {
       row.className = 'vehicles-row';
 
       list.forEach(keyName=>{
-        // récupérer statut selon formes possibles dans stationData
         let st = '';
         if (dataObj && dataObj[keyName] !== undefined) {
           const val = dataObj[keyName];
@@ -684,206 +793,421 @@ function refreshCaserneSynoptic(name) {
   }
 }
 
-// 11) Liste des interventions (remplace la partie existante)
-// S'assure d'éviter les doublons (.off + Sets) et affiche pour l'Isère
-// les centres à gauche et, en face, les engins colorés par statut.
+   // 11) subscribeInterventionsList — rebuild + debug + live
 function subscribeInterventionsList() {
   intervsDiv.innerHTML = '';
 
-  // détacher d'éventuels handlers précédents pour éviter doublons
-  db.ref('Interventions').off('child_added');
-  db.ref('Isère/Interventions').off('child_added');
+  // detach previous handlers
+  db.ref('Interventions').off();
+  db.ref('Isère/Interventions').off();
 
+  // reset caches to avoid "stuck" ids
   const seenRhone = new Set();
   const seenIsere = new Set();
+  Object.keys(engagedMap).forEach(k => delete engagedMap[k]);
 
-  // ---- Rhône (si tu veux aussi la liste Rhône, sinon supprime ce bloc) ----
-  db.ref('Interventions').orderByChild('createdAt')
-    .on('child_added', snap => {
-      const id = snap.key;
-      if (seenRhone.has(id)) return;
+  function normalizeCentreName(raw) {
+    if (!raw) return raw;
+    const r = String(raw).trim();
+    const norm = r.replace(/\s+/g,' ').toUpperCase();
+    if (/(COLOMBE.*SAINTE|SAINTE.*COLOMBE|COLOMBE,\s*SAINTE)/.test(norm)) return 'Sainte-Colombe';
+    return raw;
+  }
+
+  function buildGroupFromRhône(itv) {
+    const grouped = {};
+    const vehs = itv.vehicules || {};
+    Object.keys(vehs).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(k=>{
+      const obj = vehs[k];
+      if (!obj || typeof obj === 'string') return;
+      Object.entries(obj).forEach(([centreName, engObj])=>{
+        const displayCentre = normalizeCentreName(centreName);
+        if (!grouped[displayCentre]) grouped[displayCentre] = [];
+        if (typeof engObj === 'object') {
+          Object.entries(engObj).forEach(([enginName, engData])=>{
+            const status = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+            grouped[displayCentre].push({ code: enginName, status: String(status||'').trim() });
+            engagedMap[`${displayCentre}_${enginName}`] = itv.id || itv._id || null;
+          });
+        }
+      });
+    });
+    return grouped;
+  }
+
+  function upsertListItem(id, source, time, motif, address, grouped) {
+    let item = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="${source}"]`);
+    let syn;
+    if (!item) {
+      item = document.createElement('div');
+      item.className = 'intervention-item';
+      item.dataset.id = id;
+      item.dataset.source = source;
+      item.innerHTML = `<strong>${time} - ${motif}</strong>`;
+      syn = document.createElement('div');
+      syn.className = 'interv-synoptic hidden';
+      intervsDiv.append(item, syn);
+
+// création initiale (item.addEventListener)
+item.addEventListener('click', () => {
+  if (!syn._init) {
+    syn.innerHTML = '';
+
+    // Adresse (titre + valeur)
+    if (address) {
+      const titleAddr = document.createElement('div');
+      titleAddr.style.fontWeight = 'bold';
+      titleAddr.style.marginBottom = '6px';
+      titleAddr.textContent = 'Adresse';
+      syn.appendChild(titleAddr);
+
+      const pAddr = document.createElement('p');
+      pAddr.textContent = address;
+      syn.appendChild(pAddr);
+
+      // trait de séparation léger
+      const hr = document.createElement('div');
+      hr.style.borderTop = '1px solid #e0e0e0';
+      hr.style.margin = '8px 0';
+      syn.appendChild(hr);
+    }
+
+    // En-têtes Centre / Engins engagés (même couleur pour les deux)
+    const headerRow = document.createElement('div');
+    headerRow.style.display = 'flex';
+    headerRow.style.alignItems = 'center';
+    headerRow.style.padding = '4px 10px';
+    headerRow.style.fontWeight = 'bold';
+
+    const hCentre = document.createElement('div');
+    hCentre.textContent = 'Centre';
+    hCentre.style.flex = '0 0 35%';
+    hCentre.style.maxWidth = '35%';
+    hCentre.style.color = '#000'; // même couleur que Engins engagés
+    headerRow.appendChild(hCentre);
+
+    const hEngins = document.createElement('div');
+    hEngins.textContent = 'Engins engagés';
+    hEngins.style.flex = '1 1 65%';
+    hEngins.style.textAlign = 'left';
+    hEngins.style.color = '#000';
+    hEngins.style.marginLeft = '4%'; // léger décalage visuel
+    headerRow.appendChild(hEngins);
+
+    syn.appendChild(headerRow);
+
+    // contenu centres + engins, alignement propre
+    Object.entries(grouped).forEach(([centre, engs])=>{
+      const detail = document.createElement('div');
+      detail.className = 'interv-detail';
+      detail.style.display = 'flex';
+      detail.style.alignItems = 'flex-start';
+      detail.style.padding = '6px 0';
+      detail.style.columnGap = '12px';
+
+      const left = document.createElement('div');
+      left.textContent = centre;
+      left.style.fontWeight = 'bold';
+      left.style.flex = '0 0 35%';
+      left.style.maxWidth = '35%';
+      left.style.color = '#000';          // même couleur que l'en-tête
+      left.style.wordBreak = 'break-word';
+
+      const right = document.createElement('div');
+      right.className = 'vehicles-row';
+      right.style.flex = '1 1 65%';
+      right.style.display = 'flex';
+      right.style.flexWrap = 'wrap';
+      right.style.gap = '6px';
+      right.style.alignItems = 'flex-start';
+
+      engs.forEach(e=>{
+        const vb = document.createElement('div');
+        vb.className = `vehicle ${getStatusClass(e.status)}`;
+        vb.textContent = e.code;
+        right.appendChild(vb);
+      });
+
+      detail.appendChild(left);
+      detail.appendChild(right);
+      syn.appendChild(detail);
+    });
+
+    syn._init = true;
+    syn.classList.remove('hidden');
+  } else {
+    syn.classList.toggle('hidden');
+  }
+});
+
+// mise à jour d'un item existant (else branch)
+} else {
+  syn = item.nextElementSibling;
+
+  // Toujours (re)construire le synoptique si on a des données à jour.
+  if (syn) {
+    syn.innerHTML = '';
+
+    if (address) {
+      const titleAddr = document.createElement('div');
+      titleAddr.style.fontWeight = 'bold';
+      titleAddr.style.marginBottom = '6px';
+      titleAddr.textContent = 'Adresse';
+      syn.appendChild(titleAddr);
+
+      const pAddr = document.createElement('p');
+      pAddr.textContent = address;
+      syn.appendChild(pAddr);
+
+      const hr = document.createElement('div');
+      hr.style.borderTop = '1px solid #e0e0e0';
+      hr.style.margin = '8px 0';
+      syn.appendChild(hr);
+    }
+
+    const headerRow = document.createElement('div');
+    headerRow.style.display = 'flex';
+    headerRow.style.alignItems = 'center';
+    headerRow.style.padding = '4px 10px';
+    headerRow.style.fontWeight = 'bold';
+
+    const hCentre = document.createElement('div');
+    hCentre.textContent = 'Centre';
+    hCentre.style.flex = '0 0 35%';
+    hCentre.style.maxWidth = '35%';
+    hCentre.style.color = '#000';
+    headerRow.appendChild(hCentre);
+
+    const hEngins = document.createElement('div');
+    hEngins.textContent = 'Engins engagés';
+    hEngins.style.flex = '1 1 65%';
+    hEngins.style.textAlign = 'left';
+    hEngins.style.color = '#000';
+    hEngins.style.marginLeft = '4%';
+    headerRow.appendChild(hEngins);
+
+    syn.appendChild(headerRow);
+
+    Object.entries(grouped).forEach(([centre, engs])=>{
+      const detail = document.createElement('div');
+      detail.className = 'interv-detail';
+      detail.style.display = 'flex';
+      detail.style.alignItems = 'flex-start';
+      detail.style.padding = '6px 0';
+      detail.style.columnGap = '12px';
+
+      const left = document.createElement('div');
+      left.textContent = centre;
+      left.style.fontWeight = 'bold';
+      left.style.flex = '0 0 35%';
+      left.style.maxWidth = '35%';
+      left.style.color = '#000';
+      left.style.wordBreak = 'break-word';
+
+      const right = document.createElement('div');
+      right.className = 'vehicles-row';
+      right.style.flex = '1 1 65%';
+      right.style.display = 'flex';
+      right.style.flexWrap = 'wrap';
+      right.style.gap = '6px';
+      right.style.alignItems = 'flex-start';
+
+      engs.forEach(e=>{
+        const vb = document.createElement('div');
+        vb.className = `vehicle ${getStatusClass(e.status)}`;
+        vb.textContent = e.code;
+        right.appendChild(vb);
+      });
+
+      detail.appendChild(left);
+      detail.appendChild(right);
+      syn.appendChild(detail);
+    });
+
+    syn._init = true;
+    }
+  }
+}
+
+  // --- initial sync: rebuild list from current DB snapshots to ensure nothing missed ---
+  Promise.all([
+    db.ref('Interventions').once('value'),
+    db.ref('Isère/Interventions').once('value')
+  ]).then(([snapR, snapI]) => {
+    const rVal = snapR.val() || {};
+    const iVal = snapI.val() || {};
+
+    // Rhône initials
+    Object.entries(rVal).forEach(([id, itv])=>{
+      const it = itv || {};
+      it.id = id;
+      const grouped = buildGroupFromRhône(it);
+      const time = it.createdAt || it.dhDebutInter || '';
+      const motif = it.motif || it.sinistreCourant || '';
+      const address = it.adresse || it.Adresse || '';
+      // add regardless now; Isère listener will later update/duplicate if also present
+      upsertListItem(id, 'rhone', time, motif, address, grouped);
       seenRhone.add(id);
-
-      const itv = snap.val() || {};
-      const time = itv.createdAt || '';
-      const motif = itv.motif || itv.sinistreCourant || '';
-      const address = itv.adresse || itv.Adresse || '';
-
-      const item = document.createElement('div');
-      item.className = 'intervention-item';
-      item.dataset.id = id;
-      item.innerHTML = `<strong>${time} - ${motif}</strong>`;
-
-      const syn = document.createElement('div');
-      syn.className = 'interv-synoptic hidden';
-
-      item.addEventListener('click', () => {
-        if (!syn._init) {
-          syn.innerHTML = '';
-
-          // adresse si dispo
-          if (address) {
-            const pAddr = document.createElement('p');
-            pAddr.textContent = address;
-            syn.appendChild(pAddr);
-          }
-
-          // construire grouped centre -> [{code, status}]
-          const grouped = {};
-          const vehs = itv.vehicules || {};
-          Object.keys(vehs).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(k=>{
-            const obj = vehs[k];
-            if (!obj || typeof obj === 'string') return;
-            // cas où obj est du type { "Condrieu": { "VSAV 01": {Statut: "AL"} } }
-            Object.entries(obj).forEach(([centreName, engObj])=>{
-              if (!centreName) return;
-              if (!grouped[centreName]) grouped[centreName] = [];
-              if (typeof engObj === 'object') {
-                Object.entries(engObj).forEach(([enginName, engData])=>{
-                  const status = (engData && (engData.Statut ?? engData.statut ?? engData.status)) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
-                  grouped[centreName].push({ code: enginName, status: String(status||'').trim() });
-                  // remplir engagedMap pour ouverture via badge (normalise Ste-Colombe -> Sainte-Colombe)
-                  const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
-                  engagedMap[`${displayCentre}_${enginName}`] = id;
-                });
-              }
-            });
-          });
-
-          // affichage : centre à gauche, engins (badges colorés) à droite
-          Object.entries(grouped).forEach(([centre, vehs])=>{
-            const detail = document.createElement('div');
-            detail.className = 'interv-detail';
-
-            const left = document.createElement('div');
-            left.textContent = centre;
-            left.style.fontWeight = 'bold';
-
-            const right = document.createElement('div');
-            right.className = 'vehicles-row';
-            vehs.forEach(v=>{
-              const vb = document.createElement('div');
-              vb.className = `vehicle ${getStatusClass(v.status)}`;
-              vb.textContent = v.code;
-              right.appendChild(vb);
-            });
-
-            detail.appendChild(left);
-            detail.appendChild(right);
-            syn.appendChild(detail);
-          });
-
-          syn._init = true;
-          syn.classList.remove('hidden');
-        } else {
-          syn.classList.toggle('hidden');
-        }
-      });
-
-      intervsDiv.append(item, syn);
     });
 
-  // ---- Isère (nouvelle structure "Engins Engagés") ----
-  db.ref('Isère/Interventions').orderByChild('dhDebutInter')
-    .on('child_added', snap => {
-      const id = snap.key;
-      if (seenIsere.has(id)) return;
-      seenIsere.add(id);
-
-      const itv = snap.val() || {};
-      const time = itv.dhDebutInter || '';
-      const motif = itv.sinistreCourant || '';
-      const address = itv.Adresse || '';
-
-      const item = document.createElement('div');
-      item.className = 'intervention-item';
-      item.dataset.id = id;
-      item.innerHTML = `<strong>${time} - ${motif}</strong>`;
-
-      const syn = document.createElement('div');
-      syn.className = 'interv-synoptic hidden';
-
-      item.addEventListener('click', () => {
-        if (!syn._init) {
-          syn.innerHTML = '';
-
-          // afficher adresse en haut
-          if (address) {
-            const pAddr = document.createElement('p');
-            pAddr.textContent = address;
-            syn.appendChild(pAddr);
-          }
-
-          // Lire la structure "Engins Engagés" triée par ordre d'alerte
-          db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap=>{
-            const engOrdered = esnap.val() || {};
-            const groups = {}; // centre -> [{code, status}]
-
-            Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
-              const centresObj = engOrdered[orderKey] || {};
-              Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
-                if (!groups[centreName]) groups[centreName] = [];
-                Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
-                  const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
-                  groups[centreName].push({ code: enginName, status: String(statut||'').trim() });
-                  // remplir engagedMap (normalise Ste-Colombe -> Sainte-Colombe)
-                  const displayCentre = centreName === 'Ste-Colombe' ? 'Sainte-Colombe' : centreName;
-                  engagedMap[`${displayCentre}_${enginName}`] = id;
-                });
-              });
+    // Isère initials
+    Object.entries(iVal).forEach(([id, itv])=>{
+      const it = itv || {};
+      const time = it.dhDebutInter || it.createdAt || '';
+      const motif = it.sinistreCourant || '';
+      const address = it.Adresse || '';
+      // get Engins Engagés snapshot synchronously if present
+      db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap=>{
+        const engOrdered = esnap.val() || {};
+        const groups = {};
+        Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
+          const centresObj = engOrdered[orderKey] || {};
+          Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
+            const displayCentre = normalizeCentreName(centreName);
+            if (!groups[displayCentre]) groups[displayCentre] = [];
+            Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
+              const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+              groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
+              engagedMap[`${displayCentre}_${enginName}`] = id;
             });
-
-            // Affichage côte-à-côte centre | engins colorés
-            Object.entries(groups).forEach(([centre, engs])=>{
-              const detail = document.createElement('div');
-              detail.className = 'interv-detail';
-
-              const left = document.createElement('div');
-              left.textContent = centre;
-              left.style.fontWeight = 'bold';
-
-              const right = document.createElement('div');
-              right.className = 'vehicles-row';
-              engs.forEach(e=>{
-                const vb = document.createElement('div');
-                vb.className = `vehicle ${getStatusClass(e.status)}`;
-                vb.textContent = e.code;
-                right.appendChild(vb);
-              });
-
-              detail.appendChild(left);
-              detail.appendChild(right);
-              syn.appendChild(detail);
-            });
-
-            syn._init = true;
-            syn.classList.remove('hidden');
-          }).catch(err=>{
-            console.warn(err);
-            // en erreur, afficher juste l'adresse
-            syn.classList.remove('hidden');
           });
-        } else {
-          syn.classList.toggle('hidden');
-        }
+        });
+        upsertListItem(id, 'isere', time, motif, address, groups);
+        seenIsere.add(id);
+      }).catch(e=>{ console.warn('isere eng fetch failed', id, e); upsertListItem(id, 'isere', time, motif, address, {}); seenIsere.add(id); });
+    });
+
+    console.log('[DEBUG] initial sync done. Rhône:', Array.from(seenRhone).length, 'Isere:', Array.from(seenIsere).length);
+  }).catch(e => console.error('initial sync failed', e));
+
+  // --- live listeners (kept after initial sync) ---
+  db.ref('Interventions').on('child_added', snap => {
+    const id = snap.key;
+    const itv = snap.val() || {};
+    itv.id = id;
+    if (seenRhone.has(id)) return; // avoid duplicate adds from initial sync
+    const grouped = buildGroupFromRhône(itv);
+    const time = itv.createdAt || itv.dhDebutInter || '';
+    const motif = itv.motif || itv.sinistreCourant || '';
+    const address = itv.adresse || itv.Adresse || '';
+    upsertListItem(id, 'rhone', time, motif, address, grouped);
+    seenRhone.add(id);
+    console.log('[DEBUG] live Rhône added', id);
+  });
+
+  db.ref('Interventions').on('child_changed', snap=>{
+    const id = snap.key; const itv = snap.val()||{}; itv.id = id;
+    const grouped = buildGroupFromRhône(itv);
+    const time = itv.createdAt || itv.dhDebutInter || '';
+    const motif = itv.motif || itv.sinistreCourant || '';
+    const address = itv.adresse || itv.Adresse || '';
+    upsertListItem(id, 'rhone', time, motif, address, grouped);
+    console.log('[DEBUG] live Rhône changed', id);
+  });
+
+  db.ref('Interventions').on('child_removed', snap=>{
+    const id = snap.key;
+    const el = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="rhone"]`);
+    if (el) { const syn = el.nextElementSibling; el.remove(); if (syn) syn.remove(); }
+    seenRhone.delete(id);
+    Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+    console.log('[DEBUG] live Rhône removed', id);
+  });
+
+  // Isère live: add + keep Engins Engagés value listener
+  db.ref('Isère/Interventions').on('child_added', snap => {
+    const id = snap.key;
+    const itv = snap.val() || {};
+    console.log('[DEBUG] Isere child_added', id, itv);
+    if (seenIsere.has(id)) return;
+    seenIsere.add(id);
+    const time = itv.dhDebutInter || itv.createdAt || '';
+    const motif = itv.sinistreCourant || '';
+    const address = itv.Adresse || '';
+
+    // initial empty group, will be filled by engRef listener below
+    upsertListItem(id, 'isere', time, motif, address, {});
+
+    const engRef = db.ref(`Isère/Interventions/${id}/Engins Engagés`);
+    engRef.off(); // ensure single listener
+    engRef.on('value', esnap => {
+      console.log('[DEBUG] Isere Engins Engagés update', id, esnap.val());
+      const engOrdered = esnap.val() || {};
+      const groups = {};
+      Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
+        const centresObj = engOrdered[orderKey] || {};
+        Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
+          const displayCentre = normalizeCentreName(centreName);
+          if (!groups[displayCentre]) groups[displayCentre] = [];
+          Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
+            let statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+            if (displayCentre === 'Sainte-Colombe' && stationData['Sainte-Colombe'] && stationData['Sainte-Colombe'][enginName]) {
+              const sd = stationData['Sainte-Colombe'][enginName];
+              if (sd && typeof sd === 'object') statut = sd.Statut ?? sd.statut ?? sd.status ?? statut;
+              else if (typeof sd === 'string') statut = sd || statut;
+            }
+            groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
+            engagedMap[`${displayCentre}_${enginName}`] = id;
+          });
+        });
       });
 
-      intervsDiv.append(item, syn);
+      // update list entry for this Isère intervention
+      upsertListItem(id, 'isere', time, motif, address, groups);
+
+      // update popup if marker exists
+      if (interventionMarkersIsere[id]) {
+        const mrk = interventionMarkersIsere[id];
+        if (mrk.getPopup()) mrk.getPopup().setContent(
+          (function build(){ 
+            let html = `<a href="#" class="popup-interv" data-id="${id}"><strong>${time} - ${motif}</strong></a>`;
+            if (address) html += `<p>${address}</p>`;
+            html += `<div style="margin-top:8px;">`;
+            Object.entries(groups).forEach(([centre, vehs])=>{
+              html += `<div class="interv-detail"><div style="font-weight:bold;">${centre} :</div><div class="vehicles-row">`;
+              html += vehs.map(v => `<div class="vehicle ${getStatusClass(v.status)}">${v.code}</div>`).join('');
+              html += `</div></div>`;
+            });
+            html += `</div>`;
+            return html;
+          })()
+        );
+      }
     });
+  });
+
+  db.ref('Isère/Interventions').on('child_changed', snap=>{
+    const id = snap.key; const itv = snap.val()||{};
+    console.log('[DEBUG] Isere child_changed', id, itv);
+    const item = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="isere"]`);
+    if (item) item.innerHTML = `<strong>${itv.dhDebutInter || itv.createdAt || ''} - ${itv.sinistreCourant || ''}</strong>`;
+  });
+
+  db.ref('Isère/Interventions').on('child_removed', snap=>{
+    const id = snap.key;
+    const el = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="isere"]`);
+    if (el) { const syn = el.nextElementSibling; el.remove(); if (syn) syn.remove(); }
+    seenIsere.delete(id);
+    Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+    console.log('[DEBUG] Isere child_removed', id);
+  });
+
+  console.log('[DEBUG] subscribeInterventionsList attached');
 }
 
     // 12) Badge → carte
-    casernesDiv.addEventListener('click', e => {
-      const el = e.target.closest('.vehicle');
-      if (!el) return;
-      e.stopPropagation();
-      const text = el.textContent.trim();
-      const parts = text.split(' : ');
-      const stationName = parts.length === 2 ? parts[0] : text.split(' ')[0];
-      const code        = parts.length === 2 ? parts[1] : text.split(' ').slice(1).join(' ');
-      const id = engagedMap[`${stationName}_${code}`];
-      if (id) openIntervOnMap(id);
-    });
+   casernesDiv.addEventListener('click', e => {
+  const el = e.target.closest('.vehicle');
+  if (!el) return;
+  e.stopPropagation();
+  const text = el.textContent.trim();
+  const parts = text.split(' : ');
+  const stationName = parts.length === 2 ? parts[0] : text.split(' ')[0];
+  const code        = parts.length === 2 ? parts[1] : text.split(' ').slice(1).join(' ');
+  const id = engagedMap[`${stationName}_${code}`];
+  if (id) openIntervOnMap(id);
+});
+
 
     // 13) Bottombar
     btnMap.addEventListener('click',        () => showTab('map'));
