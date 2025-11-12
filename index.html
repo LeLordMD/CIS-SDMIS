@@ -66,10 +66,20 @@
       padding-left: 10px;
     }
     .vehicle {
-      padding: 6px 10px; border-radius: 6px;
-      font-size: 0.9em; font-weight: bold;
-      cursor: pointer;
-    }
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-weight: bold;
+  cursor: pointer;
+
+  /* contour noir fin et propre */
+  border: 2px solid #000;
+  box-sizing: border-box;
+
+  /* léger relief pour mieux détacher le badge du fond */
+  box-shadow: 0 1px 0 rgba(0,0,0,0.12);
+}
+
     /* carte popup dynamique */
     .interv-detail {
       display: flex; justify-content: space-between;
