@@ -160,14 +160,29 @@ const iconRed = makeStationIcon('#b30000');
 const iconOrange = makeStationIcon('#ff9800');
 const iconGreen = makeStationIcon('#00aa00');
 
-function makeItvIconRhône() {
-  const svg = `<svg viewBox="0 0 32 42" width="32" height="42"><path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#003366"/><text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text></svg>`;
-  return L.divIcon({ html: svg, className:'', iconSize:[32,42], iconAnchor:[16,42], popupAnchor:[0,-40] });
+/* Icons rendering the intervention number above the marker (visible au-dessus du curseur) */
+function makeItvIconRhône(id) {
+  return L.divIcon({
+    html: `<div style="position: relative; display:inline-block; text-align:center;">
+      <div style="position:absolute; top:-1.1em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000; white-space:nowrap;">N°${id}</div>
+      <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#003366"/>
+        <text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text>
+      </svg>
+    </div>`,
+    className:'', iconSize:[32,48], iconAnchor:[16,42], popupAnchor:[0,-44]
+  });
 }
 function makeItvIconIsere(id) {
   return L.divIcon({
-    html:`<div style="position: relative; display: inline-block; text-align: center;"><div style="position:absolute; top:-0.8em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000;">N°${id}</div><svg viewBox="0 0 32 42" width="32" height="42"><path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#ff9800"/><text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text></svg></div>`,
-    className:'', iconSize:[32,42], iconAnchor:[16,42], popupAnchor:[0,-40]
+    html:`<div style="position: relative; display:inline-block; text-align:center;">
+      <div style="position:absolute; top:-1.1em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000; white-space:nowrap;">N°${id}</div>
+      <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#ff9800"/>
+        <text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text>
+      </svg>
+    </div>`,
+    className:'', iconSize:[32,48], iconAnchor:[16,42], popupAnchor:[0,-44]
   });
 }
 
@@ -205,7 +220,7 @@ function geocodeNominatim(address) {
       if (!res || !res.length) return null;
       const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
       if (isNaN(lat) || isNaN(lon)) return null;
-      return { lat, lon, display_name: res[0].display_name };
+      return { lat, lon, display_name: res[0].display_name, raw: res[0] };
     }).catch(()=>null);
 }
 
@@ -254,9 +269,9 @@ async function trySmartGeocode(rawAddr) {
   return null;
 }
 
-// ---------- Popup HTML builder (with engins) ----------
-// Important: popup must show the cleaned/modified address (interventionDisplayAddress[id]) if available
+// ---------- Popup HTML builder (NO intervention number inside popup) ----------
 function buildPopupHtml(id, title, displayAddr, grouped) {
+  // Removed the N°{id} line from popup content; the number remains shown above the marker (icon)
   let html = `<a href="#" class="popup-interv" data-id="${id}"><strong>${title}</strong></a>`;
   if (displayAddr) html += `<p style="margin:6px 0 4px 0;">${displayAddr}</p>`;
   if (grouped && Object.keys(grouped).length) {
@@ -274,28 +289,19 @@ function buildPopupHtml(id, title, displayAddr, grouped) {
 // ---------- Marker management ----------
 function createOrUpdateInterventionMarker(kind, id, lat, lon, displayAddr, grouped) {
   const dict = (kind === 'isere') ? interventionMarkersIsere : interventionMarkersRhône;
-  const icon = (kind === 'isere') ? makeItvIconIsere(id) : makeItvIconRhône();
+  const icon = (kind === 'isere') ? makeItvIconIsere(id) : makeItvIconRhône(id);
 
-  // store display address (cleaned) if provided
   if (displayAddr) interventionDisplayAddress[id] = displayAddr;
-
-  // update geo cache if coords provided
   if (lat && lon) interventionGeoCache[id] = { lat, lon, display_name: displayAddr || (interventionGeoCache[id] && interventionGeoCache[id].display_name) || '' };
-
-  // prefer explicit coords, else fallback to cached coords
   let useLat = lat, useLon = lon;
   if ((!useLat || !useLon) && interventionGeoCache[id]) { useLat = interventionGeoCache[id].lat; useLon = interventionGeoCache[id].lon; }
-
-  // store groups if provided
   if (grouped && Object.keys(grouped).length) interventionGroupsPending[id] = grouped;
 
   if (!useLat || !useLon) {
-    // no position available -> remove marker if exists
     if (dict[id]) { dict[id].remove(); delete dict[id]; }
     return null;
   }
 
-  // build popup showing the cleaned display address (interventionDisplayAddress) if available
   const popupAddr = interventionDisplayAddress[id] || (interventionGeoCache[id] && interventionGeoCache[id].display_name) || '';
   const popupGroups = interventionGroupsPending[id] || grouped || {};
   const title = (interventionDataIsere[id]?.dhDebutInter || interventionDataRhône[id]?.createdAt || '') + ' - ' + (interventionDataIsere[id]?.sinistreCourant || interventionDataRhône[id]?.motif || interventionDataIsere[id]?.sinistreCourant || '');
@@ -454,11 +460,9 @@ function populateCaserneSynoptic(name, syn) {
   }
 
   // show all other keys present under the node
-  // For Vienne: filter out "Personnel" and "Ratio" and DO NOT create "Autres engins / Attributs" section
   const rawExtraKeys = Object.keys(dataObj || {}).filter(k => !shown.has(k)).sort((a,b) => a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
   let extraKeys = rawExtraKeys;
   if (name === 'Vienne') {
-    // exclude those internal fields and remove creation of the "Autres" section later
     const excluded = new Set(['Personnel','Ratio']);
     extraKeys = rawExtraKeys.filter(k => !excluded.has(k));
   }
@@ -646,9 +650,7 @@ async function upsertRhôneIntervention(id, payload) {
     if (grouped && Object.keys(grouped).length) interventionGroupsPending[id] = grouped;
     upsertListItem(id, 'rhone', time, motif, address, grouped);
 
-    // determine display address (cleaned) - we use a cleaned version if provided by heuristics
     const cleanedAddrCandidate = address ? address.trim() : '';
-    // attempt geocode and store coords + display address
     if (!address) { createOrUpdateInterventionMarker('rhone', id, null, null, cleanedAddrCandidate || '', interventionGroupsPending[id]||grouped); return; }
 
     const geo = await trySmartGeocode(address);
@@ -667,7 +669,6 @@ async function upsertRhôneIntervention(id, payload) {
           return;
         }
       }
-      // fallback: no coords, but keep cleaned display address if any (marker won't be created)
       createOrUpdateInterventionMarker('rhone', id, null, null, displayAddr, interventionGroupsPending[id]||grouped);
     }
   } catch (err) { console.warn('upsertRhôneIntervention error', id, err); }
