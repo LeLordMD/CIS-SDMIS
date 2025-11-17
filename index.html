@@ -257,8 +257,10 @@ function makeVehicleCompactBox(name, status) {
 function buildStationPopupHtml(name) {
   // choose data source
   let dataObj = {};
+  // Use centreData for centres stored under Isère/Centre (Vienne, Chasse-sur-Rhône, Roussillon)
   if (name === 'Vienne') dataObj = centreData['Vienne'] || {};
   else if (name === 'Chasse-sur-Rhône') dataObj = centreData['Chasse-sur-Rhône'] || {};
+  else if (name === 'Roussillon') dataObj = centreData['Roussillon'] || stationData['Roussillon'] || {};
   else dataObj = stationData[name] || {};
 
   // choose categories list
@@ -461,8 +463,10 @@ function buildGroupFromRhône(itv) {
 }
 
 // ---------- Casernes realtime listeners ----------
+// Updated: include Roussillon under Isère/Centre so its engins (ex: Isère/Centre/Roussillon/VSAV 01) are read
 stations.forEach(s=>{
-  if (s.nom === "Vienne" || s.nom === "Chasse-sur-Rhône") {
+  if (s.nom === "Vienne" || s.nom === "Chasse-sur-Rhône" || s.nom === "Roussillon") {
+    // these centres store engins under Isère/Centre/<CentreName>
     centreRefs[s.nom] = db.ref(`Isère/Centre/${s.nom}`);
     centreRefs[s.nom].on('value', snap=>{
       centreData[s.nom] = snap.val() || {};
@@ -552,8 +556,10 @@ function populateCaserneSynoptic(name, syn) {
 
   // pick source node
   let dataObj = {};
+  // Use centreData for Roussillon as well
   if (name === 'Vienne') dataObj = centreData['Vienne'] || {};
   else if (name === 'Chasse-sur-Rhône') dataObj = centreData['Chasse-sur-Rhône'] || {};
+  else if (name === 'Roussillon') dataObj = centreData['Roussillon'] || stationData['Roussillon'] || {};
   else dataObj = stationData[name] || {};
 
   // categories to display first if defined
