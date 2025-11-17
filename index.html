@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>GSORV</title>
+<title>GSORV - Synoptique</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <style>
 html, body { height:100%; margin:0; padding:0; font-family: Arial, sans-serif; }
@@ -43,7 +43,25 @@ html, body { height:100%; margin:0; padding:0; font-family: Arial, sans-serif; }
 .TR { background:#363636; color:#fff; }
 .ID { background:#ffeb3b; color:#000; }
 .leaflet-popup-content a { color: inherit; text-decoration: none; }
-@media (max-width:600px) { .vehicle { font-size:0.8em; } .category-title { font-size:1em; } }
+
+/* Styles pour pop-up caserne compact et scrollable */
+.popup-synoptic { font-size:0.82em; line-height:1.1; padding-top:6px; }
+.popup-synoptic .category-title { color:#b30000; font-size:0.95em; margin:4px 0; font-weight:bold; }
+.popup-synoptic .vehicles-row { gap:4px; padding-left:6px; }
+.popup-synoptic .vehicle-compact { padding:4px 8px; font-size:0.78em; border-radius:5px; border-width:1.5px; box-shadow:none; }
+
+/* limiter la hauteur et permettre le scroll */
+.popup-synoptic { max-height: 170px; overflow: auto; padding-right: 6px; }
+
+/* Make popups' inner content not overflow horizontally */
+.leaflet-popup-content-wrapper {
+  max-width: 360px !important;
+  min-width: 280px;
+  box-sizing: border-box;
+}
+
+/* make sure small devices still readable */
+@media (max-width:600px) { .vehicle { font-size:0.8em; } .category-title { font-size:1em; } .popup-synoptic { font-size:0.84em; max-height: 200px; } }
 </style>
 </head>
 <body>
@@ -93,7 +111,8 @@ const stations = [
   { nom:"Chasse-sur-Rhône", lat:45.5854485617, lng:4.8043075387 },
   { nom:"Condrieu", lat:45.46453, lng:4.76837 },
   { nom:"Sainte-Colombe", lat:45.52468, lng:4.86382 },
-  { nom:"Vienne", lat:45.5368644486, lng:4.8733135671 }
+  { nom:"Vienne", lat:45.5368644486, lng:4.8733135671 },
+  { nom:"Roussillon", lat:45.37552981884365, lng:4.80027547195928 }
 ];
 
 const categories = {
@@ -120,6 +139,15 @@ const categoriesChasse = {
   "Incendie":["CCRMSR 01"],
   "Opérations Diverses":["VL 01","VTUE 01"]
 };
+const categoriesRoussillon = {
+  "Secours à Personne": ["VSM 01", "VSAV 01", "VSAV 02"],
+  "Incendie": ["FPT 01", "CCR 01", "CCGC 01", "CPCF 01", "CFEMU 01", "CFTU 01"],
+  "Echelle": ["EPS 01"],
+  "Secours Routiers": ["FSR 01"],
+  "Opérations Diverses": ["VL 01", "VL 02", "VL 03", "VLHR 01", "VLTTC 01", "VTUE 01", "VTP 01"],
+  "Secours Animaliers": ["VANIM 01"],
+  "Secours Nautiques": ["BMS 01", "BPS 01"]
+};
 
 // ---------- Helpers ----------
 function getStatusClass(s) {
@@ -142,7 +170,7 @@ const centreData = {};
 const centreRefs = {};
 const engagedMap = {}; // "Centre_Engin" -> itvId
 const interventionMarkersRhône = {}; // id -> marker
-const interventionMarkersIsere = {};  // id -> marker
+const interventionMarkersIsere = {}; // id -> marker
 const interventionDataRhône = {}; // store raw payloads
 const interventionDataIsere = {};
 const interventionGroupsPending = {}; // id -> grouped object (used to update marker popup when groups arrive)
@@ -164,11 +192,11 @@ const iconGreen = makeStationIcon('#00aa00');
 function makeItvIconRhône(id) {
   return L.divIcon({
     html: `<div style="position: relative; display:inline-block; text-align:center;">
-      <div style="position:absolute; top:-1.1em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000; white-space:nowrap;">N°${id}</div>
-      <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
-        <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#003366"/>
-        <text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text>
-      </svg>
+    <div style="position:absolute; top:-1.1em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000; white-space:nowrap;">N°${id}</div>
+    <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
+    <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#003366"/>
+    <text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text>
+    </svg>
     </div>`,
     className:'', iconSize:[32,48], iconAnchor:[16,42], popupAnchor:[0,-44]
   });
@@ -176,11 +204,11 @@ function makeItvIconRhône(id) {
 function makeItvIconIsere(id) {
   return L.divIcon({
     html:`<div style="position: relative; display:inline-block; text-align:center;">
-      <div style="position:absolute; top:-1.1em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000; white-space:nowrap;">N°${id}</div>
-      <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
-        <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#ff9800"/>
-        <text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text>
-      </svg>
+    <div style="position:absolute; top:-1.1em; left:50%; transform:translateX(-50%); font-size:0.8em; font-weight:bold; color:#000; white-space:nowrap;">N°${id}</div>
+    <svg viewBox="0 0 32 42" width="32" height="42" xmlns="http://www.w3.org/2000/svg">
+    <path d="M16,0 C23.7,0 30,6.3 30,14 C30,24.8 16,42 16,42 C16,42 2,24.8 2,14 C2,6.3 8.3,0 16,0 Z" fill="#ff9800"/>
+    <text x="16" y="25" text-anchor="middle" fill="#fff" font-size="22" font-weight="bold">!</text>
+    </svg>
     </div>`,
     className:'', iconSize:[32,48], iconAnchor:[16,42], popupAnchor:[0,-44]
   });
@@ -193,6 +221,7 @@ function initMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap contributors' }).addTo(map);
 
   stations.forEach(s=>{
+    // initial popup content is placeholder; real content built on popupopen
     const link = `<a href="#" class="popup-caserne" data-name="${s.nom}">CT ${s.nom}</a>`;
     const m = L.marker([s.lat,s.lng], { icon: iconRed }).addTo(map).bindPopup(link);
     stationMarkers[s.nom] = m;
@@ -201,12 +230,102 @@ function initMap() {
   map.on('popupopen', e=>{
     const el = e.popup.getElement();
     const linkC = el.querySelector('.popup-caserne');
-    if (linkC) linkC.onclick = ev=>{ ev.preventDefault(); openCaserne(linkC.dataset.name); };
+    if (linkC) {
+      // replace popup content with dynamic station popup (compact)
+      const name = linkC.dataset.name;
+      const popupHtml = buildStationPopupHtml(name);
+      // set content on the currently opened popup
+      const popup = e.popup;
+      popup.setContent(popupHtml);
+      // re-query element and attach link handler
+      const newEl = popup.getElement();
+      const nc = newEl.querySelector('.popup-caserne');
+      if (nc) nc.onclick = ev=>{ ev.preventDefault(); openCaserne(nc.dataset.name); };
+    }
     const linkI = el.querySelector('.popup-interv');
     if (linkI) linkI.onclick = ev=>{ ev.preventDefault(); openIntervention(linkI.dataset.id); };
   });
 
   map.fitBounds(L.latLngBounds(stations.map(s=>[s.lat,s.lng])), { padding:[50,50] });
+}
+
+// ---------- Build station popup compact HTML ----------
+function makeVehicleCompactBox(name, status) {
+  const cls = getStatusClass(status);
+  return `<div class="vehicle-compact vehicle ${cls}" title="${name}">${name}</div>`;
+}
+function buildStationPopupHtml(name) {
+  // choose data source
+  let dataObj = {};
+  if (name === 'Vienne') dataObj = centreData['Vienne'] || {};
+  else if (name === 'Chasse-sur-Rhône') dataObj = centreData['Chasse-sur-Rhône'] || {};
+  else dataObj = stationData[name] || {};
+
+  // choose categories list
+  let catsToUse = null;
+  if (name === 'Condrieu') catsToUse = categories;
+  else if (name === 'Vienne') catsToUse = categoriesVienne;
+  else if (name === 'CT Roussillon' || name === 'Roussillon') catsToUse = categoriesRoussillon;
+  else if (name === 'Chasse-sur-Rhône') catsToUse = categoriesChasse;
+  else if (name === 'Sainte-Colombe') {
+    catsToUse = {
+      "Secours à Personne":["VSAV 01"],
+      "Incendie":["FPTL 01","CCFM 01"],
+      "Opérations Diverses":["VFI 01","VTUTP 01"],
+      "Commandement":["VLCDG 01"],
+      "Secours Nautiques":["BMS 01","R2BLS 01"],
+      "Remorque":["LBACHE 01","LBALIS 01","LCTHER 01","LDNOY 01","LECLE 01","LTRON 01"]
+    };
+  } else {
+    // default: show all keys present (compact)
+    catsToUse = null;
+  }
+
+  // build HTML compact
+  let html = `<div><a href="#" class="popup-caserne" data-name="${name}"><strong>CT ${name}</strong></a></div>`;
+  html += `<div class="popup-synoptic">`;
+
+  const shown = new Set();
+
+  if (catsToUse) {
+    Object.entries(catsToUse).forEach(([cat, list])=>{
+      html += `<div class="category-title">${cat}</div><div class="vehicles-row">`;
+      list.forEach(k=>{
+        let st = '';
+        try {
+          const val = dataObj[k];
+          if (val && typeof val === 'object') st = val.Statut ?? val.statut ?? val.status ?? '';
+          else if (typeof val === 'string') st = val;
+        } catch(e){ st=''; }
+        html += makeVehicleCompactBox(k, st);
+        shown.add(k);
+      });
+      html += `</div>`;
+    });
+  }
+
+  // extras: if no categories list or to show additional keys, show remaining keys
+  const extraKeys = Object.keys(dataObj || {}).filter(k => !shown.has(k)).sort((a,b)=>a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
+  if (extraKeys.length) {
+    html += `<div class="category-title">Autres</div><div class="vehicles-row">`;
+    extraKeys.forEach(k=>{
+      let st = '';
+      try {
+        const val = dataObj[k];
+        if (val && typeof val === 'object') st = val.Statut ?? val.statut ?? val.status ?? '';
+        else if (typeof val === 'string') st = val;
+      } catch(e){ st=''; }
+      html += makeVehicleCompactBox(k, st);
+    });
+    html += `</div>`;
+  }
+
+  if (!catsToUse && extraKeys.length === 0) {
+    html += `<div style="color:#666; margin-top:6px;">Aucun engin enregistré.</div>`;
+  }
+
+  html += `</div>`; // .popup-synoptic
+  return html;
 }
 
 // ---------- Geocoding ----------
@@ -215,15 +334,16 @@ function geocodeNominatim(address) {
   const q = encodeURIComponent(address);
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=fr&q=${q}`;
   return fetch(url, { headers:{ 'Accept-Language':'fr' } })
-    .then(r=> r.ok ? r.json() : [])
-    .then(res=> {
-      if (!res || !res.length) return null;
-      const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
-      if (isNaN(lat) || isNaN(lon)) return null;
-      return { lat, lon, display_name: res[0].display_name, raw: res[0] };
-    }).catch(()=>null);
+  .then(r=> r.ok ? r.json() : [])
+  .then(res=> {
+    if (!res || !res.length) return null;
+    const lat = parseFloat(res[0].lat), lon = parseFloat(res[0].lon);
+    if (isNaN(lat) || isNaN(lon)) return null;
+    return { lat, lon, display_name: res[0].display_name, raw: res[0] };
+  }).catch(()=>null);
 }
 
+// ---------- trySmartGeocode (kept) ----------
 async function trySmartGeocode(rawAddr) {
   if (!rawAddr) return null;
   const addr = String(rawAddr).trim();
@@ -231,7 +351,8 @@ async function trySmartGeocode(rawAddr) {
   const pkMatch = addr.match(/(?:\bPK\b|\bPk\b|\bP\.K\.|\bPoint\s+Kilom[eé]trique\b).*?(\d{1,4})/i);
   if (pkMatch) {
     const autorouteMatch = addr.match(/\bA\d{1,2}\b/i);
-    const autoroute = autorouteMatch ? autorouteMatch[0] : '';
+    const departMatch = addr.match(/\bD\d{1,4}\b/i);
+    const autoroute = autorouteMatch ? autorouteMatch[0] : (departMatch ? departMatch[0] : '');
     const parts = addr.split(',').map(s=>s.trim()).filter(Boolean);
     const commune = parts.length ? parts[parts.length-1] : '';
     const pkNum = pkMatch[1];
@@ -269,9 +390,8 @@ async function trySmartGeocode(rawAddr) {
   return null;
 }
 
-// ---------- Popup HTML builder (NO intervention number inside popup) ----------
+// ---------- Popup HTML builder (interventions) ----------
 function buildPopupHtml(id, title, displayAddr, grouped) {
-  // Removed the N°{id} line from popup content; the number remains shown above the marker (icon)
   let html = `<a href="#" class="popup-interv" data-id="${id}"><strong>${title}</strong></a>`;
   if (displayAddr) html += `<p style="margin:6px 0 4px 0;">${displayAddr}</p>`;
   if (grouped && Object.keys(grouped).length) {
@@ -286,7 +406,7 @@ function buildPopupHtml(id, title, displayAddr, grouped) {
   return html;
 }
 
-// ---------- Marker management ----------
+// ---------- Marker management (interventions) ----------
 function createOrUpdateInterventionMarker(kind, id, lat, lon, displayAddr, grouped) {
   const dict = (kind === 'isere') ? interventionMarkersIsere : interventionMarkersRhône;
   const icon = (kind === 'isere') ? makeItvIconIsere(id) : makeItvIconRhône(id);
@@ -348,6 +468,7 @@ stations.forEach(s=>{
       centreData[s.nom] = snap.val() || {};
       updateIcon(s.nom);
       refreshCaserneSynoptic(s.nom);
+      refreshStationPopupIfOpen(s.nom);
     });
   } else {
     const path = (s.nom === 'Sainte-Colombe') ? 'CIS/Ste-Colombe/Engins' : `CIS/${s.nom}/Engins`;
@@ -356,9 +477,29 @@ stations.forEach(s=>{
       stationData[s.nom] = snap.val() || {};
       updateIcon(s.nom);
       refreshCaserneSynoptic(s.nom);
+      refreshStationPopupIfOpen(s.nom);
     });
   }
 });
+
+// ---------- update popup content if station popup open ----------
+function refreshStationPopupIfOpen(name) {
+  const mk = stationMarkers[name];
+  if (!mk) return;
+  const popup = mk.getPopup();
+  if (!popup) return;
+  // check if popup is currently open and corresponds to this marker
+  if (map && map._popup && map._popup._source === mk) {
+    const newHtml = buildStationPopupHtml(name);
+    popup.setContent(newHtml);
+    // need to rebind click handler
+    const el = popup.getElement();
+    if (el) {
+      const link = el.querySelector('.popup-caserne');
+      if (link) link.onclick = ev=>{ ev.preventDefault(); openCaserne(link.dataset.name); };
+    }
+  }
+}
 
 // ---------- Icon updates ----------
 function updateDefaultIcon(name) {
@@ -419,6 +560,7 @@ function populateCaserneSynoptic(name, syn) {
   let catsToUse = null;
   if (name === 'Condrieu') catsToUse = categories;
   else if (name === 'Vienne') catsToUse = categoriesVienne;
+  else if (name === 'Roussillon' || name === 'Roussillon') catsToUse = categoriesRoussillon;
   else if (name === 'Chasse-sur-Rhône') catsToUse = categoriesChasse;
   else if (name === 'Sainte-Colombe') {
     catsToUse = {
@@ -500,50 +642,50 @@ function subscribeInterventionsList() {
   db.ref('Isère/Interventions').off();
 
   Promise.all([ db.ref('Interventions').once('value'), db.ref('Isère/Interventions').once('value') ])
-    .then(([snapR, snapI])=>{
-      const rVal = snapR.val() || {};
-      const iVal = snapI.val() || {};
+  .then(([snapR, snapI])=>{
+    const rVal = snapR.val() || {};
+    const iVal = snapI.val() || {};
 
-      Object.entries(rVal).forEach(([id, itv])=>{
-        const it = itv || {}; it.id = id;
-        const grouped = buildGroupFromRhône(it);
-        const time = it.createdAt || it.dhDebutInter || '';
-        const motif = it.motif || it.sinistreCourant || '';
-        const address = it.adresse || it.Adresse || '';
-        upsertListItem(id, 'rhone', time, motif, address, grouped);
-        upsertRhôneIntervention(id, it);
-      });
+    Object.entries(rVal).forEach(([id, itv])=>{
+      const it = itv || {}; it.id = id;
+      const grouped = buildGroupFromRhône(it);
+      const time = it.createdAt || it.dhDebutInter || '';
+      const motif = it.motif || it.sinistreCourant || '';
+      const address = it.adresse || it.Adresse || '';
+      upsertListItem(id, 'rhone', time, motif, address, grouped);
+      upsertRhôneIntervention(id, it);
+    });
 
-      Object.entries(iVal).forEach(([id, itv])=>{
-        const it = itv || {};
-        const time = it.dhDebutInter || it.createdAt || '';
-        const motif = it.sinistreCourant || '';
-        const address = it.Adresse || '';
-        db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap=>{
-          const engOrdered = esnap.val() || {};
-          const groups = {};
-          Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
-            const centresObj = engOrdered[orderKey] || {};
-            Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
-              const displayCentre = normalizeCentreName(centreName);
-              if (!groups[displayCentre]) groups[displayCentre] = [];
-              Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
-                const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
-                groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
-                engagedMap[`${displayCentre}_${enginName}`] = id;
-              });
+    Object.entries(iVal).forEach(([id, itv])=>{
+      const it = itv || {};
+      const time = it.dhDebutInter || it.createdAt || '';
+      const motif = it.sinistreCourant || '';
+      const address = it.Adresse || '';
+      db.ref(`Isère/Interventions/${id}/Engins Engagés`).once('value').then(esnap=>{
+        const engOrdered = esnap.val() || {};
+        const groups = {};
+        Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
+          const centresObj = engOrdered[orderKey] || {};
+          Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
+            const displayCentre = normalizeCentreName(centreName);
+            if (!groups[displayCentre]) groups[displayCentre] = [];
+            Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
+              const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+              groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
+              engagedMap[`${displayCentre}_${enginName}`] = id;
             });
           });
-          upsertListItem(id, 'isere', time, motif, address, groups);
-          interventionGroupsPending[id] = groups;
-          upsertIsereIntervention(id, it);
-        }).catch(e=>{
-          upsertListItem(id, 'isere', time, motif, address, {});
-          upsertIsereIntervention(id, it);
         });
+        upsertListItem(id, 'isere', time, motif, address, groups);
+        interventionGroupsPending[id] = groups;
+        upsertIsereIntervention(id, it);
+      }).catch(e=>{
+        upsertListItem(id, 'isere', time, motif, address, {});
+        upsertIsereIntervention(id, it);
       });
+    });
 
-    }).catch(e=>console.error('initial sync failed', e));
+  }).catch(e=>console.error('initial sync failed', e));
 
   // Rhône live
   db.ref('Interventions').on('child_added', snap=>{
@@ -654,7 +796,7 @@ async function upsertRhôneIntervention(id, payload) {
     if (!address) { createOrUpdateInterventionMarker('rhone', id, null, null, cleanedAddrCandidate || '', interventionGroupsPending[id]||grouped); return; }
 
     const geo = await trySmartGeocode(address);
-    const displayAddr = (geo && geo._matchedInput) ? geo._matchedInput : cleanedAddrCandidate || (geo && geo.display_name) || address;
+    const displayAddr = buildCleanDisplayAddress ? buildCleanDisplayAddress(address, geo) : (geo && geo._matchedInput) ? geo._matchedInput : cleanedAddrCandidate || (geo && geo.display_name) || address;
     interventionDisplayAddress[id] = displayAddr;
 
     if (geo) {
@@ -689,7 +831,7 @@ async function upsertIsereIntervention(id, payload) {
     if (!address) { createOrUpdateInterventionMarker('isere', id, null, null, cleanedAddrCandidate || '', interventionGroupsPending[id]||{}); return; }
 
     const geo = await trySmartGeocode(address);
-    const displayAddr = (geo && geo._matchedInput) ? geo._matchedInput : cleanedAddrCandidate || (geo && geo.display_name) || address;
+    const displayAddr = buildCleanDisplayAddress ? buildCleanDisplayAddress(address, geo) : (geo && geo._matchedInput) ? geo._matchedInput : cleanedAddrCandidate || (geo && geo.display_name) || address;
     interventionDisplayAddress[id] = displayAddr;
 
     if (geo) {
@@ -707,6 +849,30 @@ async function upsertIsereIntervention(id, payload) {
       createOrUpdateInterventionMarker('isere', id, null, null, displayAddr, interventionGroupsPending[id]||{});
     }
   } catch (err) { console.warn('upsertIsereIntervention error', id, err); }
+}
+
+// ---------- try to build cleaned address if helper exists (from prior versions) ----------
+function buildCleanDisplayAddress(rawAddr, geoParam) {
+  // If you previously had the more advanced address-cleaning helper, keep it.
+  // Fallback: return rawAddr trimmed if no helper logic present.
+  try {
+    // Reuse a minimal fallback: try to extract CP + city; otherwise return geoParam.display_name or rawAddr
+    const raw = rawAddr ? String(rawAddr).trim() : '';
+    if (!raw) return '';
+    const cp = raw.match(/\b(\d{5})\b/);
+    if (cp) {
+      const postal = cp[1];
+      const after = raw.split(postal)[1] || '';
+      const city = after.replace(/^[\s,;-]+/,'').split(/[,;-]/)[0] || '';
+      const left = raw.split(postal)[0].split(',').slice(-1)[0] || '';
+      const street = left && left.trim().length>2 ? left.trim() : '';
+      if (street && postal && city) return `${street}, ${postal} ${city}`;
+      if (postal && city) return `${postal} ${city}`;
+      if (street && city) return `${street}, ${city}`;
+    }
+    if (geoParam && geoParam.display_name) return geoParam.display_name.split(',').slice(0,3).join(',').trim();
+    return raw.length > 120 ? raw.slice(0,120) + '...' : raw;
+  } catch(e) { return rawAddr || ''; }
 }
 
 // ---------- List item upsert ----------
