@@ -43,25 +43,12 @@ html, body { height:100%; margin:0; padding:0; font-family: Arial, sans-serif; }
 .TR { background:#363636; color:#fff; }
 .ID { background:#ffeb3b; color:#000; }
 .leaflet-popup-content a { color: inherit; text-decoration: none; }
-
-/* Styles pour pop-up caserne compact et scrollable */
-.popup-synoptic { font-size:0.82em; line-height:1.1; padding-top:6px; }
+.popup-synoptic { font-size:0.82em; line-height:1.1; padding-top:6px; max-height:170px; overflow:auto; padding-right:6px; }
 .popup-synoptic .category-title { color:#b30000; font-size:0.95em; margin:4px 0; font-weight:bold; }
 .popup-synoptic .vehicles-row { gap:4px; padding-left:6px; }
 .popup-synoptic .vehicle-compact { padding:4px 8px; font-size:0.78em; border-radius:5px; border-width:1.5px; box-shadow:none; }
-
-/* limiter la hauteur et permettre le scroll */
-.popup-synoptic { max-height: 170px; overflow: auto; padding-right: 6px; }
-
-/* Make popups' inner content not overflow horizontally */
-.leaflet-popup-content-wrapper {
-  max-width: 360px !important;
-  min-width: 280px;
-  box-sizing: border-box;
-}
-
-/* make sure small devices still readable */
-@media (max-width:600px) { .vehicle { font-size:0.8em; } .category-title { font-size:1em; } .popup-synoptic { font-size:0.84em; max-height: 200px; } }
+.leaflet-popup-content-wrapper { max-width:360px !important; min-width:280px; box-sizing:border-box; }
+@media (max-width:600px) { .vehicle { font-size:0.8em; } .category-title { font-size:1em; } .popup-synoptic { font-size:0.84em; max-height:200px; } }
 </style>
 </head>
 <body>
@@ -162,6 +149,94 @@ function normalizeCentreName(raw) {
   return raw;
 }
 
+// Normalize addresses that contain "départementale" variants by removing the misleading prefix
+function stripDepartementalePrefix(raw) {
+  if (!raw || !raw.trim()) return raw;
+  let s = String(raw).trim();
+
+  const patterns = [
+    /\b(route|rte|rd|rdpt|dept|dep|départementale|départemental|departementale|departemental|rte départementale|route départementale)\b[\s,.-]*/i,
+    /\b(voie départementale|voie dep|voie dept|voie dpt)\b[\s,.-]*/i
+  ];
+
+  const streetTypes = ['rue','av','avenue','boulevard','bd','place','chemin','impasse','route','voie','cours','allée','allee','quai','pl','sq','lotissement'];
+
+  for (const p of patterns) {
+    const m = s.match(p);
+    if (m) {
+      const after = s.replace(p, '').trim();
+      if (!after) continue;
+      const first = after.split(/\s+/)[0].toLowerCase();
+      if (streetTypes.includes(first) || /^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ0-9'-]+/.test(after) || /^[rR]ue\b/.test(after) ) {
+        s = after;
+        break;
+      }
+      const tokens = after.split(/\s+/);
+      if (tokens.slice(0,3).some(t => streetTypes.includes(t.toLowerCase()))) {
+        s = after;
+        break;
+      }
+      if (/^[0-9A-Za-zÀ-ÖØ-Þ]/.test(after)) {
+        s = after;
+        break;
+      }
+    }
+  }
+
+  s = s.replace(/^[\s,;:-]+/, '').replace(/\s{2,}/g, ' ').trim();
+  return s;
+}
+
+// Clean display_name from Nominatim: remove trailing department/region/France parts
+function cleanDisplayName(displayName) {
+  if (!displayName || !displayName.trim()) return displayName || '';
+  const parts = displayName.split(',').map(p => p.trim()).filter(Boolean);
+  const filteredEnd = parts.filter(p => !/france/i.test(p) && !/métropol/i.test(p));
+  if (filteredEnd.length === 0) return parts.join(', ');
+  let p = filteredEnd.slice();
+  while (p.length > 1) {
+    const last = p[p.length-1];
+    const tokens = last.split(/\s+/);
+    if (tokens.length <= 2 && tokens.join(' ').length < 25 && !/\d{5}/.test(last)) {
+      p.pop();
+      if (p.length <= 2) break;
+      continue;
+    }
+    break;
+  }
+  const keep = p.slice(0, 3);
+  return keep.join(', ');
+}
+
+// Build a cleaned display address: prefer "rue, CP Ville" when raw contains CP; else use cleaned Nominatim display_name
+function buildCleanDisplayAddress(rawAddr, geoParam) {
+  try {
+    const raw = rawAddr ? String(rawAddr).trim() : '';
+    const normalized = stripDepartementalePrefix(raw);
+    const source = normalized || raw;
+    if (source) {
+      const cpMatch = source.match(/\b(\d{5})\b/);
+      if (cpMatch) {
+        const cp = cpMatch[1];
+        const before = source.split(cp)[0].trim();
+        const streetCandidate = before.split(',').map(s=>s.trim()).filter(Boolean).slice(-1)[0] || before;
+        const after = source.split(cp)[1] || '';
+        const cityCandidate = after.replace(/^[\s,;-]+/,'').split(/[,;-]/)[0] || '';
+        if (streetCandidate && cityCandidate) return `${streetCandidate}, ${cp} ${cityCandidate}`;
+        if (cityCandidate) return `${cp} ${cityCandidate}`;
+        if (streetCandidate) return `${streetCandidate}, ${cp}`;
+      }
+    }
+
+    if (geoParam && geoParam.display_name) {
+      return cleanDisplayName(geoParam.display_name);
+    }
+    if (normalized) return normalized.length > 120 ? normalized.slice(0,120) + '...' : normalized;
+    if (raw) return raw.length > 120 ? raw.slice(0,120) + '...' : raw;
+    return '';
+  } catch(e) { return rawAddr || (geoParam && geoParam.display_name) || ''; }
+}
+
 // ---------- State ----------
 const stationData = {};
 const stationRefs = {};
@@ -171,11 +246,13 @@ const centreRefs = {};
 const engagedMap = {}; // "Centre_Engin" -> itvId
 const interventionMarkersRhône = {}; // id -> marker
 const interventionMarkersIsere = {}; // id -> marker
+const interventionMarkersSteColombe = {}; // id -> marker
 const interventionDataRhône = {}; // store raw payloads
 const interventionDataIsere = {};
-const interventionGroupsPending = {}; // id -> grouped object (used to update marker popup when groups arrive)
+const interventionDataSteColombe = {};
+const interventionGroupsPending = {}; // id -> grouped object
 const interventionGeoCache = {}; // id -> {lat,lon,display_name}
-const interventionDisplayAddress = {}; // id -> cleaned/modified address string (to show in popup)
+const interventionDisplayAddress = {}; // id -> cleaned address
 
 // ---------- Icons ----------
 function makeStationIcon(color){
@@ -188,7 +265,6 @@ const iconRed = makeStationIcon('#b30000');
 const iconOrange = makeStationIcon('#ff9800');
 const iconGreen = makeStationIcon('#00aa00');
 
-/* Icons rendering the intervention number above the marker (visible au-dessus du curseur) */
 function makeItvIconRhône(id) {
   return L.divIcon({
     html: `<div style="position: relative; display:inline-block; text-align:center;">
@@ -221,7 +297,6 @@ function initMap() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap contributors' }).addTo(map);
 
   stations.forEach(s=>{
-    // initial popup content is placeholder; real content built on popupopen
     const link = `<a href="#" class="popup-caserne" data-name="${s.nom}">CT ${s.nom}</a>`;
     const m = L.marker([s.lat,s.lng], { icon: iconRed }).addTo(map).bindPopup(link);
     stationMarkers[s.nom] = m;
@@ -231,13 +306,10 @@ function initMap() {
     const el = e.popup.getElement();
     const linkC = el.querySelector('.popup-caserne');
     if (linkC) {
-      // replace popup content with dynamic station popup (compact)
       const name = linkC.dataset.name;
       const popupHtml = buildStationPopupHtml(name);
-      // set content on the currently opened popup
       const popup = e.popup;
       popup.setContent(popupHtml);
-      // re-query element and attach link handler
       const newEl = popup.getElement();
       const nc = newEl.querySelector('.popup-caserne');
       if (nc) nc.onclick = ev=>{ ev.preventDefault(); openCaserne(nc.dataset.name); };
@@ -255,15 +327,13 @@ function makeVehicleCompactBox(name, status) {
   return `<div class="vehicle-compact vehicle ${cls}" title="${name}">${name}</div>`;
 }
 function buildStationPopupHtml(name) {
-  // choose data source
   let dataObj = {};
-  // Use centreData for centres stored under Isère/Centre (Vienne, Chasse-sur-Rhône, Roussillon)
   if (name === 'Vienne') dataObj = centreData['Vienne'] || {};
   else if (name === 'Chasse-sur-Rhône') dataObj = centreData['Chasse-sur-Rhône'] || {};
   else if (name === 'Roussillon') dataObj = centreData['Roussillon'] || stationData['Roussillon'] || {};
+  else if (name === 'Sainte-Colombe') dataObj = stationData['Sainte-Colombe'] || {};
   else dataObj = stationData[name] || {};
 
-  // choose categories list
   let catsToUse = null;
   if (name === 'Condrieu') catsToUse = categories;
   else if (name === 'Vienne') catsToUse = categoriesVienne;
@@ -278,12 +348,8 @@ function buildStationPopupHtml(name) {
       "Secours Nautiques":["BMS 01","R2BLS 01"],
       "Remorque":["LBACHE 01","LBALIS 01","LCTHER 01","LDNOY 01","LECLE 01","LTRON 01"]
     };
-  } else {
-    // default: show all keys present (compact)
-    catsToUse = null;
   }
 
-  // build HTML compact
   let html = `<div><a href="#" class="popup-caserne" data-name="${name}"><strong>CT ${name}</strong></a></div>`;
   html += `<div class="popup-synoptic">`;
 
@@ -306,7 +372,6 @@ function buildStationPopupHtml(name) {
     });
   }
 
-  // extras: if no categories list or to show additional keys, show remaining keys
   const extraKeys = Object.keys(dataObj || {}).filter(k => !shown.has(k)).sort((a,b)=>a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
   if (extraKeys.length) {
     html += `<div class="category-title">Autres</div><div class="vehicles-row">`;
@@ -326,7 +391,7 @@ function buildStationPopupHtml(name) {
     html += `<div style="color:#666; margin-top:6px;">Aucun engin enregistré.</div>`;
   }
 
-  html += `</div>`; // .popup-synoptic
+  html += `</div>`;
   return html;
 }
 
@@ -345,10 +410,16 @@ function geocodeNominatim(address) {
   }).catch(()=>null);
 }
 
-// ---------- trySmartGeocode (kept) ----------
+// ---------- trySmartGeocode (improved for départementale cases) ----------
 async function trySmartGeocode(rawAddr) {
   if (!rawAddr) return null;
   const addr = String(rawAddr).trim();
+
+  const addrStripped = stripDepartementalePrefix(addr);
+  if (addrStripped && addrStripped !== addr) {
+    const rStripped = await geocodeNominatim(addrStripped);
+    if (rStripped) return { ...rStripped, _matchedInput: addrStripped, _method: 'stripped-departementale' };
+  }
 
   const pkMatch = addr.match(/(?:\bPK\b|\bPk\b|\bP\.K\.|\bPoint\s+Kilom[eé]trique\b).*?(\d{1,4})/i);
   if (pkMatch) {
@@ -379,6 +450,16 @@ async function trySmartGeocode(rawAddr) {
     if (r) return { ...r, _matchedInput:candidate, _method:'prefix' };
   }
 
+  if (addrStripped && addrStripped !== addr) {
+    const parts2 = addrStripped.split(',').map(p=>p.trim()).filter(Boolean);
+    for (let i=0;i<parts2.length;i++){
+      const candidate = parts2.slice(0, parts2.length - i).join(', ');
+      if (!candidate) continue;
+      r = await geocodeNominatim(candidate);
+      if (r) return { ...r, _matchedInput:candidate, _method:'prefix-stripped' };
+    }
+  }
+
   const cleaned = parts.filter(p => p.length > 3 && !/^(Saint|St|Sainte)$/i.test(p)).join(', ');
   if (cleaned && cleaned !== addr) {
     r = await geocodeNominatim(cleaned);
@@ -388,6 +469,13 @@ async function trySmartGeocode(rawAddr) {
   if (parts.length) {
     r = await geocodeNominatim(parts[parts.length-1]);
     if (r) return { ...r, _matchedInput:parts[parts.length-1], _method:'commune' };
+  }
+  if (addrStripped && addrStripped !== addr) {
+    const p2 = addrStripped.split(',').map(p=>p.trim()).filter(Boolean);
+    if (p2.length) {
+      r = await geocodeNominatim(p2[p2.length-1]);
+      if (r) return { ...r, _matchedInput:p2[p2.length-1], _method:'commune-stripped' };
+    }
   }
   return null;
 }
@@ -410,7 +498,7 @@ function buildPopupHtml(id, title, displayAddr, grouped) {
 
 // ---------- Marker management (interventions) ----------
 function createOrUpdateInterventionMarker(kind, id, lat, lon, displayAddr, grouped) {
-  const dict = (kind === 'isere') ? interventionMarkersIsere : interventionMarkersRhône;
+  const dict = (kind === 'isere') ? interventionMarkersIsere : (kind === 'stecolombe' ? interventionMarkersSteColombe : interventionMarkersRhône);
   const icon = (kind === 'isere') ? makeItvIconIsere(id) : makeItvIconRhône(id);
 
   if (displayAddr) interventionDisplayAddress[id] = displayAddr;
@@ -426,7 +514,7 @@ function createOrUpdateInterventionMarker(kind, id, lat, lon, displayAddr, group
 
   const popupAddr = interventionDisplayAddress[id] || (interventionGeoCache[id] && interventionGeoCache[id].display_name) || '';
   const popupGroups = interventionGroupsPending[id] || grouped || {};
-  const title = (interventionDataIsere[id]?.dhDebutInter || interventionDataRhône[id]?.createdAt || '') + ' - ' + (interventionDataIsere[id]?.sinistreCourant || interventionDataRhône[id]?.motif || interventionDataIsere[id]?.sinistreCourant || '');
+  const title = (interventionDataIsere[id]?.dhDebutInter || interventionDataRhône[id]?.createdAt || interventionDataSteColombe[id]?.dhDebutInter || '') + ' - ' + (interventionDataIsere[id]?.sinistreCourant || interventionDataRhône[id]?.motif || interventionDataSteColombe[id]?.sinistreCourant || '');
   const popupHtml = buildPopupHtml(id, title, popupAddr, popupGroups);
 
   if (dict[id]) {
@@ -463,10 +551,8 @@ function buildGroupFromRhône(itv) {
 }
 
 // ---------- Casernes realtime listeners ----------
-// Updated: include Roussillon under Isère/Centre so its engins (ex: Isère/Centre/Roussillon/VSAV 01) are read
 stations.forEach(s=>{
   if (s.nom === "Vienne" || s.nom === "Chasse-sur-Rhône" || s.nom === "Roussillon") {
-    // these centres store engins under Isère/Centre/<CentreName>
     centreRefs[s.nom] = db.ref(`Isère/Centre/${s.nom}`);
     centreRefs[s.nom].on('value', snap=>{
       centreData[s.nom] = snap.val() || {};
@@ -492,11 +578,9 @@ function refreshStationPopupIfOpen(name) {
   if (!mk) return;
   const popup = mk.getPopup();
   if (!popup) return;
-  // check if popup is currently open and corresponds to this marker
   if (map && map._popup && map._popup._source === mk) {
     const newHtml = buildStationPopupHtml(name);
     popup.setContent(newHtml);
-    // need to rebind click handler
     const el = popup.getElement();
     if (el) {
       const link = el.querySelector('.popup-caserne');
@@ -536,7 +620,7 @@ function updateIcon(name) {
   else updateDefaultIcon(name);
 }
 
-// ---------- Casernes UI (show ALL engins, except filtered for Vienne) ----------
+// ---------- Casernes UI ----------
 const synMap = {};
 function initCasernesList() {
   casernesDiv.innerHTML = '';
@@ -554,15 +638,13 @@ function togglePopulateSynoptic(name, syn) {
 function populateCaserneSynoptic(name, syn) {
   syn.innerHTML = '';
 
-  // pick source node
   let dataObj = {};
-  // Use centreData for Roussillon as well
   if (name === 'Vienne') dataObj = centreData['Vienne'] || {};
   else if (name === 'Chasse-sur-Rhône') dataObj = centreData['Chasse-sur-Rhône'] || {};
   else if (name === 'Roussillon') dataObj = centreData['Roussillon'] || stationData['Roussillon'] || {};
+  else if (name === 'Sainte-Colombe') dataObj = stationData['Sainte-Colombe'] || {};
   else dataObj = stationData[name] || {};
 
-  // categories to display first if defined
   let catsToUse = null;
   if (name === 'Condrieu') catsToUse = categories;
   else if (name === 'Vienne') catsToUse = categoriesVienne;
@@ -607,7 +689,6 @@ function populateCaserneSynoptic(name, syn) {
     });
   }
 
-  // show all other keys present under the node
   const rawExtraKeys = Object.keys(dataObj || {}).filter(k => !shown.has(k)).sort((a,b) => a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
   let extraKeys = rawExtraKeys;
   if (name === 'Vienne') {
@@ -646,11 +727,13 @@ function subscribeInterventionsList() {
   intervsDiv.innerHTML = '';
   db.ref('Interventions').off();
   db.ref('Isère/Interventions').off();
+  db.ref('CIS/Ste-Colombe/Interventions').off();
 
-  Promise.all([ db.ref('Interventions').once('value'), db.ref('Isère/Interventions').once('value') ])
-  .then(([snapR, snapI])=>{
+  Promise.all([ db.ref('Interventions').once('value'), db.ref('Isère/Interventions').once('value'), db.ref('CIS/Ste-Colombe/Interventions').once('value') ])
+  .then(([snapR, snapI, snapSC])=>{
     const rVal = snapR.val() || {};
     const iVal = snapI.val() || {};
+    const scVal = snapSC.val() || {};
 
     Object.entries(rVal).forEach(([id, itv])=>{
       const it = itv || {}; it.id = id;
@@ -691,6 +774,36 @@ function subscribeInterventionsList() {
       });
     });
 
+    // initial sync for Ste-Colombe interventions
+    Object.entries(scVal).forEach(([id, itv])=>{
+      const it = itv || {}; it.id = id;
+      const time = it.dhDebutInter || it.createdAt || '';
+      const motif = it.sinistreCourant || it.motif || '';
+      const address = it.Adresse || it.adresse || '';
+      db.ref(`CIS/Ste-Colombe/Interventions/${id}/Engins Engagés`).once('value').then(esnap=>{
+        const engOrdered = esnap.val() || {};
+        const groups = {};
+        Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
+          const centresObj = engOrdered[orderKey] || {};
+          Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
+            const displayCentre = normalizeCentreName(centreName);
+            if (!groups[displayCentre]) groups[displayCentre] = [];
+            Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
+              const statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+              groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
+              engagedMap[`${displayCentre}_${enginName}`] = id;
+            });
+          });
+        });
+        upsertListItem(id, 'stecolombe', time, motif, address, groups);
+        interventionGroupsPending[id] = groups;
+        upsertSteColombeIntervention(id, it);
+      }).catch(e=>{
+        upsertListItem(id, 'stecolombe', time, motif, address, {});
+        upsertSteColombeIntervention(id, it);
+      });
+    });
+
   }).catch(e=>console.error('initial sync failed', e));
 
   // Rhône live
@@ -714,13 +827,7 @@ function subscribeInterventionsList() {
   });
   db.ref('Interventions').on('child_removed', snap=>{
     const id = snap.key;
-    const el = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="rhone"]`);
-    if (el) { const syn = el.nextElementSibling; el.remove(); if (syn) syn.remove(); }
-    if (interventionMarkersRhône[id]) { interventionMarkersRhône[id].remove(); delete interventionMarkersRhône[id]; }
-    if (interventionGeoCache[id]) delete interventionGeoCache[id];
-    if (interventionGroupsPending[id]) delete interventionGroupsPending[id];
-    if (interventionDisplayAddress[id]) delete interventionDisplayAddress[id];
-    Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+    removeIntervention(id);
   });
 
   // Isère live
@@ -775,14 +882,108 @@ function subscribeInterventionsList() {
 
   db.ref('Isère/Interventions').on('child_removed', snap=>{
     const id = snap.key;
-    const el = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="isere"]`);
-    if (el) { const syn = el.nextElementSibling; el.remove(); if (syn) syn.remove(); }
-    if (interventionMarkersIsere[id]) { interventionMarkersIsere[id].remove(); delete interventionMarkersIsere[id]; }
-    if (interventionGeoCache[id]) delete interventionGeoCache[id];
-    if (interventionGroupsPending[id]) delete interventionGroupsPending[id];
-    if (interventionDisplayAddress[id]) delete interventionDisplayAddress[id];
-    Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+    removeIntervention(id);
   });
+
+  // Ste-Colombe live (CIS path)
+  const scBase = 'CIS/Ste-Colombe/Interventions';
+  db.ref(scBase).on('child_added', snap=>{
+    const id = snap.key; const itv = snap.val() || {}; itv.id = id;
+    const time = itv.dhDebutInter || itv.createdAt || '';
+    const motif = itv.sinistreCourant || itv.motif || '';
+    const address = itv.Adresse || itv.adresse || '';
+    upsertListItem(id, 'stecolombe', time, motif, address, {});
+    upsertSteColombeIntervention(id, itv);
+
+    const engRef = db.ref(`${scBase}/${id}/Engins Engagés`);
+    engRef.off();
+    engRef.on('value', esnap=>{
+      const engOrdered = esnap.val() || {};
+      const groups = {};
+      Object.keys(engOrdered).sort((a,b)=>parseInt(a,10)-parseInt(b,10)).forEach(orderKey=>{
+        const centresObj = engOrdered[orderKey] || {};
+        Object.entries(centresObj).forEach(([centreName, enginsObj])=>{
+          const displayCentre = normalizeCentreName(centreName);
+          if (!groups[displayCentre]) groups[displayCentre] = [];
+          Object.entries(enginsObj || {}).forEach(([enginName, engData])=>{
+            let statut = engData && (engData.Statut ?? engData.statut ?? engData.status) ? (engData.Statut ?? engData.statut ?? engData.status) : '';
+            if (displayCentre === 'Sainte-Colombe' && stationData['Sainte-Colombe'] && stationData['Sainte-Colombe'][enginName]) {
+              const sd = stationData['Sainte-Colombe'][enginName];
+              if (sd && typeof sd === 'object') statut = sd.Statut ?? sd.statut ?? sd.status ?? statut;
+              else if (typeof sd === 'string') statut = sd || statut;
+            }
+            groups[displayCentre].push({ code: enginName, status: String(statut||'').trim() });
+            engagedMap[`${displayCentre}_${enginName}`] = id;
+          });
+        });
+      });
+      const time2 = itv.dhDebutInter || itv.createdAt || '';
+      const motif2 = itv.sinistreCourant || itv.motif || '';
+      upsertListItem(id, 'stecolombe', time2, motif2, address, groups);
+      interventionGroupsPending[id] = groups;
+      if (interventionMarkersSteColombe[id]) {
+        const displayAddr = interventionDisplayAddress[id] || (interventionGeoCache[id] && interventionGeoCache[id].display_name) || itv.Adresse || itv.adresse || '';
+        const popupHtml = buildPopupHtml(id, `${time2} - ${motif2}`, displayAddr, groups);
+        if (interventionMarkersSteColombe[id].getPopup()) interventionMarkersSteColombe[id].getPopup().setContent(popupHtml);
+      }
+    });
+  });
+
+  db.ref(scBase).on('child_changed', snap=>{
+    const id = snap.key; const itv = snap.val() || {}; itv.id = id;
+    const item = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="stecolombe"]`);
+    if (item) item.innerHTML = `<strong>${itv.dhDebutInter || itv.createdAt || ''} - ${itv.sinistreCourant || itv.motif || ''}</strong>`;
+    upsertSteColombeIntervention(id, itv);
+  });
+
+  db.ref(scBase).on('child_removed', snap=>{
+    const id = snap.key;
+    removeIntervention(id);
+  });
+}
+
+// ---------- Remove intervention helper ----------
+function removeIntervention(id) {
+  if (interventionMarkersRhône[id]) {
+    try { 
+      const m = interventionMarkersRhône[id];
+      if (map && map._popup && map._popup._source === m) map.closePopup();
+    } catch(e) {}
+    try { interventionMarkersRhône[id].remove(); } catch(e) {}
+    delete interventionMarkersRhône[id];
+  }
+  if (interventionMarkersIsere[id]) {
+    try { 
+      const m = interventionMarkersIsere[id];
+      if (map && map._popup && map._popup._source === m) map.closePopup();
+    } catch(e) {}
+    try { interventionMarkersIsere[id].remove(); } catch(e) {}
+    delete interventionMarkersIsere[id];
+  }
+  if (interventionMarkersSteColombe[id]) {
+    try { 
+      const m = interventionMarkersSteColombe[id];
+      if (map && map._popup && map._popup._source === m) map.closePopup();
+    } catch(e) {}
+    try { interventionMarkersSteColombe[id].remove(); } catch(e) {}
+    delete interventionMarkersSteColombe[id];
+  }
+
+  if (interventionGeoCache[id]) delete interventionGeoCache[id];
+  if (interventionGroupsPending[id]) delete interventionGroupsPending[id];
+  if (interventionDisplayAddress[id]) delete interventionDisplayAddress[id];
+  if (interventionDataIsere[id]) delete interventionDataIsere[id];
+  if (interventionDataRhône[id]) delete interventionDataRhône[id];
+  if (interventionDataSteColombe[id]) delete interventionDataSteColombe[id];
+
+  Object.keys(engagedMap).forEach(k=>{ if (engagedMap[k] === id) delete engagedMap[k]; });
+
+  const elR = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="rhone"]`);
+  if (elR) { const syn = elR.nextElementSibling; elR.remove(); if (syn) syn.remove(); }
+  const elI = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="isere"]`);
+  if (elI) { const syn = elI.nextElementSibling; elI.remove(); if (syn) syn.remove(); }
+  const elS = intervsDiv.querySelector(`.intervention-item[data-id="${id}"][data-source="stecolombe"]`);
+  if (elS) { const syn = elS.nextElementSibling; elS.remove(); if (syn) syn.remove(); }
 }
 
 // ---------- Upsert functions with geocode + groups integration ----------
@@ -802,22 +1003,25 @@ async function upsertRhôneIntervention(id, payload) {
     if (!address) { createOrUpdateInterventionMarker('rhone', id, null, null, cleanedAddrCandidate || '', interventionGroupsPending[id]||grouped); return; }
 
     const geo = await trySmartGeocode(address);
-    const displayAddr = buildCleanDisplayAddress ? buildCleanDisplayAddress(address, geo) : (geo && geo._matchedInput) ? geo._matchedInput : cleanedAddrCandidate || (geo && geo.display_name) || address;
+    const displayAddr = buildCleanDisplayAddress(address, geo);
     interventionDisplayAddress[id] = displayAddr;
 
-    if (geo) {
+    if (geo && geo.lat && geo.lon) {
       createOrUpdateInterventionMarker('rhone', id, geo.lat, geo.lon, displayAddr, interventionGroupsPending[id]||grouped);
+      upsertListItem(id, 'rhone', time, motif, displayAddr, grouped);
     } else {
       const commune = (address.split(',').slice(-1)[0]||'').trim();
       if (commune) {
         const geoCommune = await geocodeNominatim(commune);
         if (geoCommune) {
-          interventionDisplayAddress[id] = displayAddr || `${geoCommune.display_name} (estimation)`;
+          interventionDisplayAddress[id] = displayAddr || `${cleanDisplayName(geoCommune.display_name)} (estimation)`;
           createOrUpdateInterventionMarker('rhone', id, geoCommune.lat, geoCommune.lon, interventionDisplayAddress[id], interventionGroupsPending[id]||grouped);
+          upsertListItem(id, 'rhone', time, motif, interventionDisplayAddress[id], grouped);
           return;
         }
       }
       createOrUpdateInterventionMarker('rhone', id, null, null, displayAddr, interventionGroupsPending[id]||grouped);
+      upsertListItem(id, 'rhone', time, motif, displayAddr, grouped);
     }
   } catch (err) { console.warn('upsertRhôneIntervention error', id, err); }
 }
@@ -837,48 +1041,65 @@ async function upsertIsereIntervention(id, payload) {
     if (!address) { createOrUpdateInterventionMarker('isere', id, null, null, cleanedAddrCandidate || '', interventionGroupsPending[id]||{}); return; }
 
     const geo = await trySmartGeocode(address);
-    const displayAddr = buildCleanDisplayAddress ? buildCleanDisplayAddress(address, geo) : (geo && geo._matchedInput) ? geo._matchedInput : cleanedAddrCandidate || (geo && geo.display_name) || address;
+    const displayAddr = buildCleanDisplayAddress(address, geo);
     interventionDisplayAddress[id] = displayAddr;
 
-    if (geo) {
+    if (geo && geo.lat && geo.lon) {
       createOrUpdateInterventionMarker('isere', id, geo.lat, geo.lon, displayAddr, interventionGroupsPending[id]||{});
+      upsertListItem(id, 'isere', time, motif, displayAddr, interventionGroupsPending[id]||{});
     } else {
       const commune = (address.split(',').slice(-1)[0]||'').trim();
       if (commune) {
         const geoCommune = await geocodeNominatim(commune);
         if (geoCommune) {
-          interventionDisplayAddress[id] = displayAddr || `${geoCommune.display_name} (estimation)`;
+          interventionDisplayAddress[id] = displayAddr || `${cleanDisplayName(geoCommune.display_name)} (estimation)`;
           createOrUpdateInterventionMarker('isere', id, geoCommune.lat, geoCommune.lon, interventionDisplayAddress[id], interventionGroupsPending[id]||{});
+          upsertListItem(id, 'isere', time, motif, interventionDisplayAddress[id], interventionGroupsPending[id]||{});
           return;
         }
       }
       createOrUpdateInterventionMarker('isere', id, null, null, displayAddr, interventionGroupsPending[id]||{});
+      upsertListItem(id, 'isere', time, motif, displayAddr, interventionGroupsPending[id]||{});
     }
   } catch (err) { console.warn('upsertIsereIntervention error', id, err); }
 }
 
-// ---------- try to build cleaned address if helper exists (from prior versions) ----------
-function buildCleanDisplayAddress(rawAddr, geoParam) {
-  // If you previously had the more advanced address-cleaning helper, keep it.
-  // Fallback: return rawAddr trimmed if no helper logic present.
+async function upsertSteColombeIntervention(id, payload) {
+  if (!id) return;
   try {
-    // Reuse a minimal fallback: try to extract CP + city; otherwise return geoParam.display_name or rawAddr
-    const raw = rawAddr ? String(rawAddr).trim() : '';
-    if (!raw) return '';
-    const cp = raw.match(/\b(\d{5})\b/);
-    if (cp) {
-      const postal = cp[1];
-      const after = raw.split(postal)[1] || '';
-      const city = after.replace(/^[\s,;-]+/,'').split(/[,;-]/)[0] || '';
-      const left = raw.split(postal)[0].split(',').slice(-1)[0] || '';
-      const street = left && left.trim().length>2 ? left.trim() : '';
-      if (street && postal && city) return `${street}, ${postal} ${city}`;
-      if (postal && city) return `${postal} ${city}`;
-      if (street && city) return `${street}, ${city}`;
+    const it = payload || {};
+    interventionDataSteColombe[id] = it;
+    const time = it.dhDebutInter || it.createdAt || '';
+    const motif = it.sinistreCourant || it.motif || '';
+    const address = it.Adresse || it.adresse || '';
+    upsertListItem(id, 'stecolombe', time, motif, interventionDisplayAddress[id] || address, interventionGroupsPending[id]||{});
+
+    const cleanedAddrCandidate = address ? address.trim() : '';
+
+    if (!address) { createOrUpdateInterventionMarker('stecolombe', id, null, null, cleanedAddrCandidate || '', interventionGroupsPending[id]||{}); return; }
+
+    const geo = await trySmartGeocode(address);
+    const displayAddr = buildCleanDisplayAddress(address, geo);
+    interventionDisplayAddress[id] = displayAddr;
+
+    if (geo && geo.lat && geo.lon) {
+      createOrUpdateInterventionMarker('stecolombe', id, geo.lat, geo.lon, displayAddr, interventionGroupsPending[id]||{});
+      upsertListItem(id, 'stecolombe', time, motif, displayAddr, interventionGroupsPending[id]||{});
+    } else {
+      const commune = (address.split(',').slice(-1)[0]||'').trim();
+      if (commune) {
+        const geoCommune = await geocodeNominatim(commune);
+        if (geoCommune) {
+          interventionDisplayAddress[id] = displayAddr || `${cleanDisplayName(geoCommune.display_name)} (estimation)`;
+          createOrUpdateInterventionMarker('stecolombe', id, geoCommune.lat, geoCommune.lon, interventionDisplayAddress[id], interventionGroupsPending[id]||{});
+          upsertListItem(id, 'stecolombe', time, motif, interventionDisplayAddress[id], interventionGroupsPending[id]||{});
+          return;
+        }
+      }
+      createOrUpdateInterventionMarker('stecolombe', id, null, null, displayAddr, interventionGroupsPending[id]||{});
+      upsertListItem(id, 'stecolombe', time, motif, displayAddr, interventionGroupsPending[id]||{});
     }
-    if (geoParam && geoParam.display_name) return geoParam.display_name.split(',').slice(0,3).join(',').trim();
-    return raw.length > 120 ? raw.slice(0,120) + '...' : raw;
-  } catch(e) { return rawAddr || ''; }
+  } catch (err) { console.warn('upsertSteColombeIntervention error', id, err); }
 }
 
 // ---------- List item upsert ----------
@@ -972,7 +1193,7 @@ function openIntervention(id) {
 }
 function openIntervOnMap(id) {
   showTab('map');
-  const mrk = interventionMarkersIsere[id] || interventionMarkersRhône[id];
+  const mrk = interventionMarkersIsere[id] || interventionMarkersSteColombe[id] || interventionMarkersRhône[id];
   if (mrk) { map.setView(mrk.getLatLng(), map.getZoom()); mrk.openPopup(); }
 }
 btnMap.addEventListener('click', () => showTab('map'));
